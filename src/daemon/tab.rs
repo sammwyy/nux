@@ -25,7 +25,7 @@ pub struct Tab {
     pub command: Vec<String>,
     pub created_at: i64,
     pub pid: Option<u32>,
-    master: Mutex<Box<dyn MasterPty + Send>>,
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     state: Mutex<TabState>,
@@ -92,7 +92,7 @@ impl Tab {
             command: command.clone(),
             created_at: now_unix(),
             pid,
-            master: Mutex::new(pair.master),
+            master: Mutex::new(Some(pair.master)),
             writer: Mutex::new(writer),
             killer: Mutex::new(killer),
             state: Mutex::new(TabState {
@@ -133,14 +133,17 @@ impl Tab {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
-        self.master.lock().unwrap().resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })?;
+        if let Some(master) = self.master.lock().unwrap().as_deref() {
+            master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+        }
         self.state.lock().unwrap().parser.set_size(rows, cols);
         Ok(())
+    }
+
+    /// Drops the PTY master. On Windows, ConPTY's output pipe otherwise stays
+    /// open after the child exits, so the reader thread's read would hang.
+    fn close_master(&self) {
+        self.master.lock().unwrap().take();
     }
 
     pub fn rename(&self, title: String) {
@@ -185,10 +188,13 @@ fn exit_info(status: &ExitStatus) -> ExitInfo {
     ExitInfo { code: status.exit_code(), success: status.success(), at: now_unix() }
 }
 
-/// Starts the background thread that pumps a tab's PTY output into its
-/// terminal emulator and out to subscribers. See [`Tab::spawn`].
+/// Starts the reader thread (pumps PTY output) and the waiter thread
+/// ([`Child::wait`] is the reliable cross-platform exit signal; it marks the
+/// tab exited and closes the master to unstick the reader). See [`Tab::spawn`].
 pub fn spawn_reader(tab: std::sync::Arc<Tab>, mut reader: Box<dyn std::io::Read + Send>, mut child: Box<dyn Child + Send + Sync>) {
-    std::thread::spawn(move || {
+    let reader_tab = tab.clone();
+    let reader_thread = std::thread::spawn(move || {
+        let tab = reader_tab;
         let mut buf = [0u8; 32 * 1024];
         loop {
             match reader.read(&mut buf) {
@@ -223,8 +229,13 @@ pub fn spawn_reader(tab: std::sync::Arc<Tab>, mut reader: Box<dyn std::io::Read 
                 Err(_) => break,
             }
         }
-        tab.alive.store(false, Ordering::SeqCst);
+    });
+
+    std::thread::spawn(move || {
         let status = child.wait().ok();
+        tab.alive.store(false, Ordering::SeqCst);
+        tab.close_master();
+        let _ = reader_thread.join();
         {
             let mut state = tab.state.lock().unwrap();
             state.exit = Some(status.as_ref().map(exit_info).unwrap_or(ExitInfo {
