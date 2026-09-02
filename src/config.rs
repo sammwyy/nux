@@ -15,6 +15,7 @@ pub struct Config {
     /// Lines of scrollback kept per tab by the terminal emulator.
     pub scrollback_lines: usize,
     pub keybindings: Keybindings,
+    pub layout: LayoutConfig,
 }
 
 impl Default for Config {
@@ -23,7 +24,62 @@ impl Default for Config {
             shell: None,
             scrollback_lines: 5000,
             keybindings: Keybindings::default(),
+            layout: LayoutConfig::default(),
         }
+    }
+}
+
+/// Which terminal row (`Top`/`Bottom`) and side (`Left`/`Right`) a bar renders in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Row {
+    Top,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// Where the two status bars render.
+///
+/// `tab_bar` (the "Nux" label plus the scrollable tab strip) and `workspace_bar`
+/// (the current tab's directory) each get a row and a side. Two bars sharing a
+/// row split it between their sides; a bar alone on its row gets the full
+/// width. A row nobody uses isn't reserved at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LayoutConfig {
+    pub tab_bar_row: Row,
+    pub tab_bar_side: Side,
+    pub workspace_bar_row: Row,
+    pub workspace_bar_side: Side,
+    /// Max columns given to the workspace bar when sharing a row with the tab bar.
+    pub workspace_bar_width: u16,
+}
+
+impl Default for LayoutConfig {
+    fn default() -> Self {
+        Self {
+            tab_bar_row: Row::Bottom,
+            tab_bar_side: Side::Left,
+            workspace_bar_row: Row::Bottom,
+            workspace_bar_side: Side::Right,
+            workspace_bar_width: 32,
+        }
+    }
+}
+
+impl LayoutConfig {
+    /// (top rows used, bottom rows used) — 0 or 1 each, depending on whether
+    /// any bar is assigned to that row.
+    pub fn reserved_rows(&self) -> (u16, u16) {
+        let top = self.tab_bar_row == Row::Top || self.workspace_bar_row == Row::Top;
+        let bottom = self.tab_bar_row == Row::Bottom || self.workspace_bar_row == Row::Bottom;
+        (top as u16, bottom as u16)
     }
 }
 
@@ -43,7 +99,7 @@ pub struct Keybindings {
 impl Default for Keybindings {
     fn default() -> Self {
         Self {
-            new_tab: "Alt+c".into(),
+            new_tab: "Alt+n".into(),
             next_tab: "Alt+Right".into(),
             prev_tab: "Alt+Left".into(),
             close_tab: "Alt+x".into(),
@@ -194,5 +250,24 @@ mod tests {
         ] {
             parse_keybind(spec).unwrap_or_else(|e| panic!("default keybind {spec:?} failed: {e}"));
         }
+    }
+
+    #[test]
+    fn reserved_rows_default_is_bottom_only() {
+        assert_eq!(LayoutConfig::default().reserved_rows(), (0, 1));
+    }
+
+    #[test]
+    fn reserved_rows_both_bars_on_same_row() {
+        let layout =
+            LayoutConfig { tab_bar_row: Row::Top, workspace_bar_row: Row::Top, ..LayoutConfig::default() };
+        assert_eq!(layout.reserved_rows(), (1, 0));
+    }
+
+    #[test]
+    fn reserved_rows_split_across_rows() {
+        let layout =
+            LayoutConfig { tab_bar_row: Row::Top, workspace_bar_row: Row::Bottom, ..LayoutConfig::default() };
+        assert_eq!(layout.reserved_rows(), (1, 1));
     }
 }

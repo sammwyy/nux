@@ -44,6 +44,7 @@ mod tests {
             rows: 24,
             bell: false,
             exit: None,
+            workspace: "/".into(),
         }
     }
 

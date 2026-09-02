@@ -3,7 +3,7 @@
 
 use super::input::key_to_bytes;
 use super::ui;
-use crate::config::{parse_keybind, Config, Keybind};
+use crate::config::{parse_keybind, Config, Keybind, LayoutConfig};
 use crate::protocol::{read_message, write_message, Request, Response, TabInfo};
 use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -39,7 +39,7 @@ impl ParsedKeybinds {
         let kb = &cfg.keybindings;
         let parse = |s: &str, fallback: &str| parse_keybind(s).unwrap_or_else(|_| parse_keybind(fallback).unwrap());
         Self {
-            new_tab: parse(&kb.new_tab, "Alt+c"),
+            new_tab: parse(&kb.new_tab, "Alt+n"),
             next_tab: parse(&kb.next_tab, "Alt+Right"),
             prev_tab: parse(&kb.prev_tab, "Alt+Left"),
             close_tab: parse(&kb.close_tab, "Alt+x"),
@@ -67,6 +67,7 @@ pub struct State {
     pub mode: Mode,
     pub cols: u16,
     pub rows: u16,
+    pub layout: LayoutConfig,
     parser: Option<vt100::Parser>,
     awaiting_list: bool,
 }
@@ -80,8 +81,9 @@ impl State {
 /// Clamps to a minimum of 1x1: a terminal that hasn't reported a real size
 /// yet (or a misbehaving one) can hand back 0 for either dimension, and a
 /// zero-sized `vt100` grid panics on the first cell access.
-fn viewport(term_size: (u16, u16)) -> (u16, u16) {
-    (term_size.0.max(1), term_size.1.saturating_sub(1).max(1))
+fn viewport(term_size: (u16, u16), layout: &LayoutConfig) -> (u16, u16) {
+    let (top, bottom) = layout.reserved_rows();
+    (term_size.0.max(1), term_size.1.saturating_sub(top + bottom).max(1))
 }
 
 /// Runs the interactive TUI to completion (until the user detaches or the daemon
@@ -108,8 +110,9 @@ pub fn run(config: Config, start: Start) -> anyhow::Result<()> {
         }
     });
 
+    let layout = config.layout;
     let term_size = crossterm::terminal::size().unwrap_or((80, 24));
-    let (cols, rows) = viewport(term_size);
+    let (cols, rows) = viewport(term_size, &layout);
 
     let mut state = State {
         tabs: Vec::new(),
@@ -118,6 +121,7 @@ pub fn run(config: Config, start: Start) -> anyhow::Result<()> {
         mode: Mode::Normal,
         cols,
         rows,
+        layout,
         parser: None,
         awaiting_list: false,
     };
@@ -276,7 +280,7 @@ fn upsert_tab(state: &mut State, info: TabInfo) {
 }
 
 fn handle_resize(cols: u16, rows: u16, state: &mut State, req_tx: &mpsc::Sender<Request>) {
-    let (cols, rows) = viewport((cols, rows));
+    let (cols, rows) = viewport((cols, rows), &state.layout);
     state.cols = cols;
     state.rows = rows;
     if let Some(parser) = state.parser.as_mut() {

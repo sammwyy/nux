@@ -41,6 +41,8 @@ pub struct TabInfo {
     pub bell: bool,
     /// `None` while the process is running; `Some` once it has exited.
     pub exit: Option<ExitInfo>,
+    /// The directory the tab was launched in.
+    pub workspace: String,
 }
 
 impl TabInfo {
@@ -174,6 +176,7 @@ mod tests {
             rows: 40,
             bell: false,
             exit: None,
+            workspace: "/".into(),
         }]);
         let mut buf = Vec::new();
         write_message(&mut buf, &resp).unwrap();
@@ -209,6 +212,7 @@ mod tests {
             rows: 24,
             bell: false,
             exit: None,
+            workspace: "/".into(),
         };
         assert_eq!(info.program(), "codex");
     }
@@ -225,6 +229,7 @@ mod tests {
             rows: 24,
             bell: false,
             exit: None,
+            workspace: "/".into(),
         };
         assert!(info.is_alive());
         info.exit = Some(ExitInfo { code: 0, success: true, at: 0 });

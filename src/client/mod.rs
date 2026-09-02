@@ -93,11 +93,23 @@ pub fn request_once(stream: &mut Stream, req: &Request) -> std::io::Result<Respo
 }
 
 /// Kills every tab and terminates the daemon process, if one is running.
+/// Blocks until the daemon has actually stopped listening, so a caller can
+/// immediately connect/spawn a fresh one without racing the old process's
+/// exit.
 pub fn kill_server() -> anyhow::Result<bool> {
     let mut stream = match connect() {
         Ok(s) => s,
         Err(_) => return Ok(false),
     };
     let _ = request_once(&mut stream, &Request::Shutdown);
+    drop(stream);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while is_running() {
+        if Instant::now() > deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
     Ok(true)
 }

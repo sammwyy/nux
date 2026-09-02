@@ -226,8 +226,6 @@ fn daemon_kill() -> anyhow::Result<()> {
 
 fn daemon_restart() -> anyhow::Result<()> {
     client::kill_server()?;
-    // Give the old process a moment to release the socket before spawning a new one.
-    std::thread::sleep(std::time::Duration::from_millis(300));
     client::ensure_daemon()?;
     println!("nux daemon restarted");
     Ok(())

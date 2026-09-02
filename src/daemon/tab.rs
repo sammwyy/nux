@@ -25,6 +25,7 @@ pub struct Tab {
     pub command: Vec<String>,
     pub created_at: i64,
     pub pid: Option<u32>,
+    pub workspace: String,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
@@ -87,11 +88,16 @@ impl Tab {
         let reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
 
+        let workspace = cwd.clone().unwrap_or_else(|| {
+            std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()
+        });
+
         let tab = std::sync::Arc::new(Tab {
             id,
             command: command.clone(),
             created_at: now_unix(),
             pid,
+            workspace,
             master: Mutex::new(Some(pair.master)),
             writer: Mutex::new(writer),
             killer: Mutex::new(killer),
@@ -121,6 +127,7 @@ impl Tab {
             rows,
             bell: state.bell,
             exit: state.exit,
+            workspace: self.workspace.clone(),
         }
     }
 
