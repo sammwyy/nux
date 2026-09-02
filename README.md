@@ -40,6 +40,26 @@ nux -k 2             # kill tab 2
 
 ## Install / build
 
+Linux (x86_64, arm64, or armv7 — e.g. Raspberry Pi):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sammwyy/nux/main/install.sh | sh
+```
+
+Windows:
+
+```powershell
+irm https://raw.githubusercontent.com/sammwyy/nux/main/install.ps1 | iex
+```
+
+Both scripts fetch the latest [release](https://github.com/sammwyy/nux/releases)
+binary for your OS/arch and put it on your `PATH` — `~/.local/bin` on Linux
+(added to your shell rc if it isn't already on `PATH`), `%APPDATA%\nux\bin`
+on Windows (added to your user `PATH` environment variable). Both are
+per-user installs; no admin/sudo required.
+
+Or via cargo:
+
 ```sh
 cargo install nux-term
 ```
@@ -255,6 +275,9 @@ local sockets via `interprocess`'s named sockets, which map to the Linux
 abstract namespace or Windows named pipes respectively). macOS should work
 through the same Unix code paths (PTYs, `setsid`, filesystem-path local
 sockets) but is untested.
+
+Linux releases are published for x86_64, arm64 and armv7 (32-bit) — the
+latter two cover Raspberry Pi and other single-board computers.
 
 ## License
 
