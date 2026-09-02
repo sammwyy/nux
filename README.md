@@ -75,7 +75,13 @@ nux config <KEY>             Print one config value
 nux config <KEY> <VALUE>     Set and save one config value
 nux -h | --help              Show help
 nux -V | --version           Show the version
+--colors | --no-colors       Force-enable/disable colored output for this run
 ```
+
+Plain-command output (`ls`, `daemon`, `config`) is colorized when stdout is a
+terminal, controlled by the `color` config key (`"auto"` by default, or
+`"always"`/`"never"`) and overridable per invocation with `--colors`/
+`--no-colors` regardless of where they appear on the command line.
 
 ### Selectors
 
