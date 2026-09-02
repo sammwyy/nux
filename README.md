@@ -24,11 +24,11 @@ nux -k 2             # kill tab 2
 - **Real terminal emulation per tab**, powered by `vt100`: colors, cursor
   shape, alternate screen apps (vim, htop, ...), and OSC title updates all
   work.
-- **Exited tabs stay put.** A process ending doesn't close its tab: nux
-  marks it `[exited]`, keeps its final screen (up to `scrollback_lines`) so
-  you can see what happened, and leaves it in the list until you dismiss it —
-  same close-tab key/command as always, applied twice (once to kill, once to
-  dismiss).
+- **Optionally, exited tabs stay put.** With `keep_exited_tab_open = true`, a
+  process ending doesn't close its tab: nux marks it `[exited]`, keeps its
+  final screen (up to `scrollback_lines`) so you can see what happened, and
+  leaves it in the list until you dismiss it — same close-tab key/command as
+  always, applied twice (once to kill, once to dismiss).
 - **The daemon shuts itself down** once the last tab is dismissed — like a
   tmux server exiting when its last session is killed — so nothing lingers
   once you're done.
@@ -101,25 +101,24 @@ actually want to open a program named e.g. `ls` in a tab.
 
 ### Tab lifecycle
 
-When a tab's process exits, the tab is **not** removed. It's marked
-`[exited]` in the tab bar (with the exit code, if nonzero, shown while it's
-the attached tab) and keeps whatever was on screen — up to `scrollback_lines`
-of it — so you can read what happened before deciding what to do next.
+By default a tab closes the instant its process exits. Set
+`keep_exited_tab_open = true` in `config.toml` to leave it around instead:
+marked `[exited]` in the tab bar (with the exit code, if nonzero, shown while
+it's the attached tab), keeping whatever was on screen — up to
+`scrollback_lines` of it — so you can read what happened before deciding what
+to do next.
 
-Killing a tab (`Alt+X`, `nux -k <selector>`, `nux kill <selector>`) is
-therefore a two-step action on the same key/command:
+With `keep_exited_tab_open` on, killing a tab (`Alt+X`, `nux -k <selector>`,
+`nux kill <selector>`) becomes a two-step action on the same key/command:
 
 1. On a **running** tab: sends a termination signal to its process. The tab
    stays listed, now waiting to be marked exited.
 2. On an **already-exited** tab: dismisses it — this is the step that
    actually removes it from the list.
 
-Once the last tab is dismissed this way, the daemon shuts itself down
+Either way, once the last tab is gone the daemon shuts itself down
 automatically (see [Architecture](#architecture)) — there's no need to run
 `nux daemon kill` by hand after closing everything from inside the TUI.
-
-Set `auto_close_exited_tabs = true` in `config.toml` to go back to removing a
-tab the instant its process exits, with no `[exited]` state in between.
 
 ## Keybindings
 
@@ -147,7 +146,7 @@ Keys are written as `Modifier+Modifier+Key`, e.g. `"Ctrl+Shift+n"`,
 
 ```toml
 scrollback_lines = 5000
-auto_close_exited_tabs = false
+keep_exited_tab_open = false
 
 [keybindings]
 new_tab = "Alt+n"

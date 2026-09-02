@@ -26,22 +26,38 @@ impl Drop for DaemonProcess {
     }
 }
 
-/// Spawns an isolated daemon (unique `USER`/`XDG_RUNTIME_DIR` so it never
-/// collides with a real user daemon or with other tests running in parallel)
-/// and points this process's own env at the same namespace so `nux::client`
-/// resolves the same socket.
+/// Spawns an isolated daemon (unique `USER`/`XDG_RUNTIME_DIR`/`XDG_CONFIG_HOME`
+/// so it never collides with a real user daemon, config file, or other tests
+/// running in parallel) and points this process's own env at the same
+/// namespace so `nux::client` resolves the same socket.
 fn spawn_isolated_daemon(tag: &str) -> DaemonProcess {
+    spawn_isolated_daemon_with_config(tag, None)
+}
+
+/// Like [`spawn_isolated_daemon`], but writes `config_toml` (if given) as the
+/// daemon's config file before starting it.
+fn spawn_isolated_daemon_with_config(tag: &str, config_toml: Option<&str>) -> DaemonProcess {
     let dir = tempfile::tempdir().unwrap();
     let user = format!("nuxtest-{tag}-{}", std::process::id());
+    let config_home = dir.path().join("config");
+    let runtime_dir = dir.path().join("runtime");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    if let Some(toml) = config_toml {
+        let nux_dir = config_home.join("nux");
+        std::fs::create_dir_all(&nux_dir).unwrap();
+        std::fs::write(nux_dir.join("config.toml"), toml).unwrap();
+    }
 
     std::env::set_var("USER", &user);
-    std::env::set_var("XDG_RUNTIME_DIR", dir.path());
+    std::env::set_var("XDG_RUNTIME_DIR", &runtime_dir);
+    std::env::set_var("XDG_CONFIG_HOME", &config_home);
 
     let bin = env!("CARGO_BIN_EXE_nux");
     let mut child = Command::new(bin)
         .arg("__daemon")
         .env("USER", &user)
-        .env("XDG_RUNTIME_DIR", dir.path())
+        .env("XDG_RUNTIME_DIR", &runtime_dir)
+        .env("XDG_CONFIG_HOME", &config_home)
         .spawn()
         .expect("failed to spawn daemon");
 
@@ -58,9 +74,18 @@ fn spawn_isolated_daemon(tag: &str) -> DaemonProcess {
 }
 
 #[test]
-fn create_list_kill_roundtrip() {
+fn create_list_and_kill_a_running_tab() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Keep a second tab alive so killing the first one never triggers the
+    // "last tab gone" daemon shutdown path.
     let _daemon = spawn_isolated_daemon("roundtrip");
+
+    let mut keepalive_conn = client::connect().unwrap();
+    client::request_once(
+        &mut keepalive_conn,
+        &Request::CreateTab { command: vec!["sleep".into(), "30".into()], cwd: None, cols: 80, rows: 24 },
+    )
+    .unwrap();
 
     let mut create_conn = client::connect().unwrap();
     let resp = client::request_once(
@@ -82,20 +107,17 @@ fn create_list_kill_roundtrip() {
         other => panic!("expected Attached, got {other:?}"),
     };
 
-    // A fresh connection should see the tab created by the first one.
+    // A fresh connection should see both tabs.
     let mut list_conn = client::connect().unwrap();
     let resp = client::request_once(&mut list_conn, &Request::ListTabs).unwrap();
     match resp {
-        Response::TabList(tabs) => {
-            assert_eq!(tabs.len(), 1);
-            assert_eq!(tabs[0].id, tab_id);
-        }
+        Response::TabList(tabs) => assert_eq!(tabs.len(), 2),
         other => panic!("expected TabList, got {other:?}"),
     }
 
-    // First kill: the process is still running, so this just signals it.
-    // The tab is *not* removed — it stays listed until marked exited and
-    // then explicitly dismissed.
+    // The process is still running, so this just signals it — by default
+    // (`keep_exited_tab_open = false`) it then disappears on its own once it
+    // actually dies, with no second kill needed.
     let resp = client::request_once(&mut list_conn, &Request::KillTab { tab_id }).unwrap();
     assert!(matches!(resp, Response::Ok));
 
@@ -104,21 +126,48 @@ fn create_list_kill_roundtrip() {
         let mut conn = client::connect().unwrap();
         let resp = client::request_once(&mut conn, &Request::ListTabs).unwrap();
         if let Response::TabList(tabs) = resp {
-            assert_eq!(tabs.len(), 1, "killed tab should stay listed until dismissed");
+            if tabs.iter().all(|t| t.id != tab_id) {
+                break;
+            }
+        }
+        assert!(Instant::now() < deadline, "killed tab was never auto-removed");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn keep_exited_tab_open_requires_a_second_kill_to_dismiss() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _daemon = spawn_isolated_daemon_with_config("keep-open", Some("keep_exited_tab_open = true\n"));
+
+    let mut create_conn = client::connect().unwrap();
+    let resp = client::request_once(
+        &mut create_conn,
+        &Request::CreateTab { command: vec!["true".into()], cwd: None, cols: 80, rows: 24 },
+    )
+    .unwrap();
+    let tab_id = match resp {
+        Response::Attached(info) => info.id,
+        other => panic!("expected Attached, got {other:?}"),
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let mut conn = client::connect().unwrap();
+        let resp = client::request_once(&mut conn, &Request::ListTabs).unwrap();
+        if let Response::TabList(tabs) = resp {
+            assert_eq!(tabs.len(), 1, "exited tab should stay listed until dismissed");
             if !tabs[0].is_alive() {
                 break;
             }
         }
-        assert!(Instant::now() < deadline, "tab was not marked exited after being killed");
+        assert!(Instant::now() < deadline, "tab was not marked exited");
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    // Second kill, on the now-exited tab: dismisses/removes it for good. It
-    // was the only tab, so the daemon also shuts itself down right after —
-    // see `daemon_exits_once_last_tab_is_dismissed` for that behavior in
-    // isolation; here we just confirm the connection survives long enough to
-    // see the dismissal response before the daemon goes away.
-    let resp = client::request_once(&mut list_conn, &Request::KillTab { tab_id }).unwrap();
+    // Dismisses/removes the now-exited tab for good.
+    let mut kill_conn = client::connect().unwrap();
+    let resp = client::request_once(&mut kill_conn, &Request::KillTab { tab_id }).unwrap();
     assert!(matches!(resp, Response::TabClosed(id) if id == tab_id));
 }
 
@@ -181,12 +230,8 @@ fn shutdown_stops_the_daemon() {
 #[test]
 fn daemon_exits_once_last_tab_is_dismissed() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut daemon = spawn_isolated_daemon("empty-shutdown");
+    let mut daemon = spawn_isolated_daemon_with_config("empty-shutdown", Some("keep_exited_tab_open = true\n"));
 
-    // `create_conn` ends up attached (subscribed) to the tab it creates, so
-    // it must not be reused for plain request/response calls afterward (it
-    // may start receiving async `Screen`/`TabUpdated` pushes) — use a fresh
-    // connection for everything else, like the CLI's one-shot commands do.
     let mut create_conn = client::connect().unwrap();
     let resp = client::request_once(
         &mut create_conn,
@@ -218,6 +263,25 @@ fn daemon_exits_once_last_tab_is_dismissed() {
     let resp = client::request_once(&mut kill_conn, &Request::KillTab { tab_id }).unwrap();
     assert!(matches!(resp, Response::TabClosed(id) if id == tab_id));
 
+    let status = daemon.child.wait().unwrap();
+    assert!(status.success());
+    assert!(!client::is_running());
+}
+
+#[test]
+fn daemon_exits_once_last_tab_auto_closes_by_default() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut daemon = spawn_isolated_daemon("empty-shutdown-default");
+
+    let mut create_conn = client::connect().unwrap();
+    client::request_once(
+        &mut create_conn,
+        &Request::CreateTab { command: vec!["true".into()], cwd: None, cols: 80, rows: 24 },
+    )
+    .unwrap();
+
+    // No kill needed: the only tab auto-closes as soon as `true` exits, and
+    // the daemon shuts itself down right behind it.
     let status = daemon.child.wait().unwrap();
     assert!(status.success());
     assert!(!client::is_running());

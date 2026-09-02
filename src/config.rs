@@ -14,9 +14,12 @@ pub struct Config {
     pub shell: Option<String>,
     /// Lines of scrollback kept per tab by the terminal emulator.
     pub scrollback_lines: usize,
-    /// Remove a tab as soon as its process exits, instead of leaving it
-    /// visible (marked `[exited]`) until dismissed.
-    pub auto_close_exited_tabs: bool,
+    /// Leave a tab visible (marked `[exited]`) until dismissed, instead of
+    /// removing it the instant its process exits.
+    pub keep_exited_tab_open: bool,
+    /// Whether plain CLI commands (`ls`, `daemon`, `config`, ...) colorize
+    /// their output. `--colors`/`--no-colors` override this per invocation.
+    pub color: ColorMode,
     pub keybindings: Keybindings,
     pub layout: LayoutConfig,
 }
@@ -26,9 +29,31 @@ impl Default for Config {
         Self {
             shell: None,
             scrollback_lines: 5000,
-            auto_close_exited_tabs: false,
+            keep_exited_tab_open: false,
+            color: ColorMode::Auto,
             keybindings: Keybindings::default(),
             layout: LayoutConfig::default(),
+        }
+    }
+}
+
+/// `Always`/`Never` force color on or off; `Auto` colors only when stdout is
+/// a terminal and `NO_COLOR` isn't set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorMode {
+    Auto,
+    Always,
+    Never,
+}
+
+impl ColorMode {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(ColorMode::Auto),
+            "always" => Ok(ColorMode::Always),
+            "never" => Ok(ColorMode::Never),
+            other => Err(format!("expected \"auto\", \"always\" or \"never\", got {other:?}")),
         }
     }
 }
@@ -232,7 +257,8 @@ pub fn set_config_key(cfg: &mut Config, key: &str, value: &str) -> Result<(), St
             cfg.scrollback_lines =
                 value.parse().map_err(|_| format!("scrollback_lines must be a non-negative integer, got {value:?}"))?;
         }
-        "auto_close_exited_tabs" => cfg.auto_close_exited_tabs = parse_bool(value)?,
+        "keep_exited_tab_open" => cfg.keep_exited_tab_open = parse_bool(value)?,
+        "color" => cfg.color = ColorMode::parse(value)?,
         "shell" => {
             cfg.shell = if value.is_empty() || value.eq_ignore_ascii_case("none") {
                 None
@@ -387,8 +413,8 @@ mod tests {
         set_config_key(&mut cfg, "scrollback_lines", "8000").unwrap();
         assert_eq!(cfg.scrollback_lines, 8000);
 
-        set_config_key(&mut cfg, "auto_close_exited_tabs", "true").unwrap();
-        assert!(cfg.auto_close_exited_tabs);
+        set_config_key(&mut cfg, "keep_exited_tab_open", "true").unwrap();
+        assert!(cfg.keep_exited_tab_open);
 
         set_config_key(&mut cfg, "shell", "/bin/zsh").unwrap();
         assert_eq!(cfg.shell.as_deref(), Some("/bin/zsh"));
@@ -408,7 +434,7 @@ mod tests {
     fn set_config_key_rejects_bad_types_and_unknown_keys() {
         let mut cfg = Config::default();
         assert!(set_config_key(&mut cfg, "scrollback_lines", "not-a-number").is_err());
-        assert!(set_config_key(&mut cfg, "auto_close_exited_tabs", "maybe").is_err());
+        assert!(set_config_key(&mut cfg, "keep_exited_tab_open", "maybe").is_err());
         assert!(set_config_key(&mut cfg, "layout.tab_bar_row", "sideways").is_err());
         assert!(set_config_key(&mut cfg, "keybindings.new_tab", "not a keybind at all").is_err());
         assert!(set_config_key(&mut cfg, "nonexistent", "x").is_err());

@@ -187,7 +187,7 @@ impl Tab {
 
     /// Records the process's exit and tells subscribers, without removing
     /// the tab. Used when exited tabs are left around for the user to
-    /// dismiss (see `Config::auto_close_exited_tabs`).
+    /// dismiss (see `Config::keep_exited_tab_open`).
     pub fn mark_exited(&self, exit: ExitInfo) {
         self.state.lock().unwrap().exit = Some(exit);
         let info = self.info();

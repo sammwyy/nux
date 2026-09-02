@@ -39,7 +39,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
 
     log::info!("nux daemon listening (pid {})", std::process::id());
 
-    let manager = TabManager::new(config.scrollback_lines, config.auto_close_exited_tabs);
+    let manager = TabManager::new(config.scrollback_lines, config.keep_exited_tab_open);
     let conn_counter = AtomicU64::new(0);
 
     for conn in listener.incoming() {

@@ -27,7 +27,7 @@ struct Inner {
     tabs: Mutex<HashMap<u32, Arc<Tab>>>,
     next_id: AtomicU32,
     scrollback_lines: usize,
-    auto_close_exited: bool,
+    keep_exited_tab_open: bool,
 }
 
 /// Terminates the daemon once the last tab is gone, mirroring tmux's server
@@ -52,13 +52,13 @@ pub fn default_shell() -> String {
 }
 
 impl TabManager {
-    pub fn new(scrollback_lines: usize, auto_close_exited: bool) -> Self {
+    pub fn new(scrollback_lines: usize, keep_exited_tab_open: bool) -> Self {
         Self {
             inner: Arc::new(Inner {
                 tabs: Mutex::new(HashMap::new()),
                 next_id: AtomicU32::new(0),
                 scrollback_lines,
-                auto_close_exited,
+                keep_exited_tab_open,
             }),
         }
     }
@@ -85,10 +85,10 @@ impl TabManager {
         self.inner.tabs.lock().unwrap().insert(id, tab.clone());
         let manager = self.clone();
         super::tab::spawn_reader(tab, reader, child, move |tab, exit| {
-            if manager.inner.auto_close_exited {
-                manager.remove_after_exit(tab.id);
-            } else {
+            if manager.inner.keep_exited_tab_open {
                 tab.mark_exited(exit);
+            } else {
+                manager.remove_after_exit(tab.id);
             }
         });
         Ok(info)
@@ -174,8 +174,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exited_tab_stays_until_dismissed() {
-        let manager = TabManager::new(1000, false);
+    fn exited_tab_stays_until_dismissed_when_configured() {
+        let manager = TabManager::new(1000, true);
         // `true` is a real binary on Unix and exits immediately; good enough to
         // exercise the manager without depending on a shell being interactive.
         let info = manager.create(vec!["true".into()], None, 80, 24).unwrap();
@@ -226,8 +226,8 @@ mod tests {
     }
 
     #[test]
-    fn auto_close_removes_exited_tabs_without_dismissal() {
-        let manager = TabManager::new(1000, true);
+    fn default_removes_exited_tabs_without_dismissal() {
+        let manager = TabManager::new(1000, false);
         // A second, long-running tab keeps the manager non-empty so exiting
         // the first one never hits the "shut the process down" path.
         let keepalive = manager.create(vec!["sleep".into(), "30".into()], None, 80, 24).unwrap();
