@@ -41,6 +41,15 @@ nux -k 2             # kill tab 2
 ## Install / build
 
 ```sh
+cargo install nux-term
+# installs the `nux` binary to ~/.cargo/bin (the crates.io *package* is called
+# nux-term — the plain "nux" name was already taken — but the command it
+# installs is `nux`)
+```
+
+Or build from a checkout:
+
+```sh
 cargo build --release
 # binary at target/release/nux[.exe]
 ```

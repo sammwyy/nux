@@ -599,7 +599,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nux"
+name = "nux-term"
 version = "0.1.0"
 dependencies = [
  "anyhow",

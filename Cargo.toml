@@ -1,12 +1,15 @@
 [package]
-name = "nux"
+name = "nux-term"
 version = "0.1.0"
 edition = "2021"
-description = "A modern, daemon-backed terminal multiplexer"
+description = "A modern, daemon-backed terminal multiplexer. Installs a `nux` binary."
 license = "MIT"
 authors = ["nux contributors"]
 repository = "https://github.com/sammwy/nux"
+homepage = "https://github.com/sammwy/nux"
 readme = "README.md"
+keywords = ["terminal", "multiplexer", "tmux", "tui", "daemon"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "nux"
