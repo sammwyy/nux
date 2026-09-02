@@ -9,7 +9,7 @@ Write-Host "detecting system..."
 $Arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     "X64" { "x86_64" }
     default {
-        throw "no prebuilt nux binary for architecture '$_' — only x86_64 Windows builds are published."
+        throw "no prebuilt nux binary for architecture '$_' - only x86_64 Windows builds are published."
     }
 }
 $Asset = "nux-windows-$Arch.zip"
@@ -38,8 +38,8 @@ try {
         throw "couldn't find nux.exe inside $Asset."
     }
 
-    # Alongside nux's own config dir (%APPDATA%\nux), in a bin\ subfolder — a
-    # per-user location that needs no admin rights.
+    # Alongside nux's own config dir (%APPDATA%\nux), in a bin\ subfolder -
+    # a per-user location that needs no admin rights.
     $InstallDir = Join-Path $env:APPDATA "nux\bin"
     Write-Host "installing to $InstallDir..."
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -59,8 +59,8 @@ try {
     }
 
     Write-Host ""
-    Write-Host "✓ $(& $DestPath --version) -> $InstallDir"
-    if ($PathNote) { Write-Host "$PathNote — already active in this session, no restart needed" }
+    Write-Host "OK: $(& $DestPath --version) -> $InstallDir"
+    if ($PathNote) { Write-Host "$PathNote (already active in this session)" }
 }
 finally {
     Remove-Item -Path $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
