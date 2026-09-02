@@ -1,19 +1,19 @@
 [package]
-name = "nemux"
+name = "nux"
 version = "0.1.0"
 edition = "2021"
 description = "A modern, daemon-backed terminal multiplexer"
 license = "MIT"
-authors = ["nemux contributors"]
-repository = "https://github.com/sammwy/nemux"
+authors = ["nux contributors"]
+repository = "https://github.com/sammwy/nux"
 readme = "README.md"
 
 [[bin]]
-name = "nemux"
+name = "nux"
 path = "src/main.rs"
 
 [lib]
-name = "nemux"
+name = "nux"
 path = "src/lib.rs"
 
 [dependencies]

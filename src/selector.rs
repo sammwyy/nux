@@ -1,4 +1,4 @@
-//! Matches a user-supplied selector string (`nemux -t <SELECTOR>`, `nemux -k <SELECTOR>`)
+//! Matches a user-supplied selector string (`nux -t <SELECTOR>`, `nux -k <SELECTOR>`)
 //! against the list of currently open tabs.
 //!
 //! A selector is tried, in order, as:

@@ -75,7 +75,7 @@ impl Tab {
         if let Some(dir) = &cwd {
             cmd.cwd(dir);
         }
-        // Child processes should never inherit nemux's own IPC socket env, but they do
+        // Child processes should never inherit nux's own IPC socket env, but they do
         // need a sane TERM to behave like a real terminal.
         cmd.env("TERM", "xterm-256color");
 

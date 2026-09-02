@@ -39,7 +39,7 @@ fn wait_for_daemon() -> anyhow::Result<Stream> {
         }
         if Instant::now() > deadline {
             anyhow::bail!(
-                "nemux daemon did not start in time; check {}",
+                "nux daemon did not start in time; check {}",
                 crate::ipc::log_file().display()
             );
         }

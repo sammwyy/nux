@@ -1,37 +1,37 @@
-use nemux::client;
-use nemux::config::Config;
-use nemux::protocol::{Request, Response, TabInfo};
-use nemux::selector::find_matches;
+use nux::client;
+use nux::config::Config;
+use nux::protocol::{Request, Response, TabInfo};
+use nux::selector::find_matches;
 
-const HELP: &str = r#"nemux — a modern, daemon-backed terminal multiplexer
+const HELP: &str = r#"nux — a modern, daemon-backed terminal multiplexer
 
 USAGE:
-    nemux                        Open the tab overview / attach to the last tab
-    nemux <PROGRAM> [ARGS...]    Open PROGRAM in a new tab and attach to it
-    nemux new <PROGRAM> [ARGS...] Same as above, for programs that collide with a
-                                  nemux subcommand name (e.g. `nemux new ls`)
-    nemux -t <SELECTOR>          Attach to a tab by id, title or program name
-    nemux -k <SELECTOR>          Kill a tab by id, title or program name
-    nemux attach <SELECTOR>      Same as -t
-    nemux kill <SELECTOR>        Same as -k
-    nemux rename <SELECTOR> <TITLE>
+    nux                        Open the tab overview / attach to the last tab
+    nux <PROGRAM> [ARGS...]    Open PROGRAM in a new tab and attach to it
+    nux new <PROGRAM> [ARGS...] Same as above, for programs that collide with a
+                                  nux subcommand name (e.g. `nux new ls`)
+    nux -t <SELECTOR>          Attach to a tab by id, title or program name
+    nux -k <SELECTOR>          Kill a tab by id, title or program name
+    nux attach <SELECTOR>      Same as -t
+    nux kill <SELECTOR>        Same as -k
+    nux rename <SELECTOR> <TITLE>
                                   Rename a tab
-    nemux ls | list               List open tabs
-    nemux status                 Show whether the daemon is running
-    nemux kill-server            Kill every tab and stop the daemon
-    nemux restart-server         Restart the daemon (tabs are lost)
-    nemux config                 Print the config file path
-    nemux -h | --help            Show this help
-    nemux -V | --version         Show the version
+    nux ls | list               List open tabs
+    nux status                 Show whether the daemon is running
+    nux kill-server            Kill every tab and stop the daemon
+    nux restart-server         Restart the daemon (tabs are lost)
+    nux config                 Print the config file path
+    nux -h | --help            Show this help
+    nux -V | --version         Show the version
 
 SELECTORS
     A selector is a tab id ("0"), or a case-insensitive substring matched
     against the tab's title or program name ("codex"). If a selector matches
-    more than one tab, nemux lets you pick from a list.
+    more than one tab, nux lets you pick from a list.
 
 CONFIG
-    Keybindings and defaults live in nemux/config.toml under your platform's
-    config directory (see `nemux config`). Defaults:
+    Keybindings and defaults live in nux/config.toml under your platform's
+    config directory (see `nux config`). Defaults:
       Alt+C          new tab (default shell)
       Alt+Left/Right previous / next tab
       Alt+X          close current tab
@@ -46,7 +46,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = dispatch(args);
     if let Err(e) = result {
-        eprintln!("nemux: {e}");
+        eprintln!("nux: {e}");
         std::process::exit(1);
     }
 }
@@ -62,10 +62,10 @@ fn dispatch(mut args: Vec<String>) -> anyhow::Result<()> {
             Ok(())
         }
         "-V" | "--version" => {
-            println!("nemux {}", env!("CARGO_PKG_VERSION"));
+            println!("nux {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-        "__daemon" => nemux::daemon::run(Config::load()),
+        "__daemon" => nux::daemon::run(Config::load()),
         "-t" | "attach" => {
             let selector = args.get(1).cloned().ok_or_else(|| anyhow::anyhow!("missing selector"))?;
             attach_by_selector(&selector)
@@ -76,7 +76,7 @@ fn dispatch(mut args: Vec<String>) -> anyhow::Result<()> {
         }
         "rename" => {
             if args.len() < 3 {
-                anyhow::bail!("usage: nemux rename <SELECTOR> <TITLE>");
+                anyhow::bail!("usage: nux rename <SELECTOR> <TITLE>");
             }
             rename_by_selector(&args[1], args[2..].join(" "))
         }
@@ -98,7 +98,7 @@ fn dispatch(mut args: Vec<String>) -> anyhow::Result<()> {
 
 fn with_connection<T>(f: impl FnOnce(&mut interprocess::local_socket::Stream) -> anyhow::Result<T>) -> anyhow::Result<T> {
     let mut stream = client::connect()
-        .map_err(|_| anyhow::anyhow!("daemon is not running (start it with `nemux`)"))?;
+        .map_err(|_| anyhow::anyhow!("daemon is not running (start it with `nux`)"))?;
     f(&mut stream)
 }
 
@@ -202,21 +202,21 @@ fn list_tabs() -> anyhow::Result<()> {
 
 fn status() -> anyhow::Result<()> {
     if !client::is_running() {
-        println!("nemux daemon: not running");
+        println!("nux daemon: not running");
         return Ok(());
     }
     let tabs = with_connection(fetch_tabs)?;
-    println!("nemux daemon: running ({} tab{})", tabs.len(), if tabs.len() == 1 { "" } else { "s" });
-    println!("socket: {:?}", nemux::ipc::socket_name().ok());
-    println!("log: {}", nemux::ipc::log_file().display());
+    println!("nux daemon: running ({} tab{})", tabs.len(), if tabs.len() == 1 { "" } else { "s" });
+    println!("socket: {:?}", nux::ipc::socket_name().ok());
+    println!("log: {}", nux::ipc::log_file().display());
     Ok(())
 }
 
 fn kill_server() -> anyhow::Result<()> {
     if client::kill_server()? {
-        println!("nemux daemon stopped");
+        println!("nux daemon stopped");
     } else {
-        println!("nemux daemon was not running");
+        println!("nux daemon was not running");
     }
     Ok(())
 }
@@ -226,6 +226,6 @@ fn restart_server() -> anyhow::Result<()> {
     // Give the old process a moment to release the socket before spawning a new one.
     std::thread::sleep(std::time::Duration::from_millis(300));
     client::ensure_daemon()?;
-    println!("nemux daemon restarted");
+    println!("nux daemon restarted");
     Ok(())
 }

@@ -21,7 +21,7 @@ pub fn runtime_dir() -> PathBuf {
     dirs::runtime_dir()
         .or_else(dirs::cache_dir)
         .unwrap_or_else(std::env::temp_dir)
-        .join("nemux")
+        .join("nux")
 }
 
 pub fn ensure_runtime_dir() -> std::io::Result<PathBuf> {
@@ -31,19 +31,19 @@ pub fn ensure_runtime_dir() -> std::io::Result<PathBuf> {
 }
 
 pub fn pid_file() -> PathBuf {
-    runtime_dir().join("nemux.pid")
+    runtime_dir().join("nux.pid")
 }
 
 pub fn log_file() -> PathBuf {
-    runtime_dir().join("nemux.log")
+    runtime_dir().join("nux.log")
 }
 
-/// Resolves the local socket name nemux's daemon listens on and clients connect to.
+/// Resolves the local socket name nux's daemon listens on and clients connect to.
 ///
 /// Prefers the namespaced socket type (works uniformly on Linux's abstract namespace
 /// and Windows named pipes); falls back to a filesystem path (needed on macOS/BSD).
 pub fn socket_name() -> std::io::Result<Name<'static>> {
-    let id = format!("nemux-{}.sock", user_tag());
+    let id = format!("nux-{}.sock", user_tag());
     if GenericNamespaced::is_supported() {
         id.to_ns_name::<GenericNamespaced>()
     } else {

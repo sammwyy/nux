@@ -1,6 +1,6 @@
 //! User configuration: default shell, scrollback size and TUI keybindings.
 //!
-//! Loaded from `<config dir>/nemux/config.toml` (created with sane defaults on first
+//! Loaded from `<config dir>/nux/config.toml` (created with sane defaults on first
 //! run if it doesn't exist yet).
 
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -58,7 +58,7 @@ impl Config {
     pub fn config_dir() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(std::env::temp_dir)
-            .join("nemux")
+            .join("nux")
     }
 
     pub fn config_path() -> PathBuf {

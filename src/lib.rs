@@ -1,4 +1,4 @@
-//! nemux: a modern, daemon-backed terminal multiplexer.
+//! nux: a modern, daemon-backed terminal multiplexer.
 
 pub mod client;
 pub mod config;

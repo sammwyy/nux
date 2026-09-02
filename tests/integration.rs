@@ -1,8 +1,8 @@
 //! End-to-end tests: spawn a real daemon process in an isolated runtime dir /
 //! socket namespace and drive it through the actual wire protocol.
 
-use nemux::client;
-use nemux::protocol::{Request, Response};
+use nux::client;
+use nux::protocol::{Request, Response};
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -28,16 +28,16 @@ impl Drop for DaemonProcess {
 
 /// Spawns an isolated daemon (unique `USER`/`XDG_RUNTIME_DIR` so it never
 /// collides with a real user daemon or with other tests running in parallel)
-/// and points this process's own env at the same namespace so `nemux::client`
+/// and points this process's own env at the same namespace so `nux::client`
 /// resolves the same socket.
 fn spawn_isolated_daemon(tag: &str) -> DaemonProcess {
     let dir = tempfile::tempdir().unwrap();
-    let user = format!("nemuxtest-{tag}-{}", std::process::id());
+    let user = format!("nuxtest-{tag}-{}", std::process::id());
 
     std::env::set_var("USER", &user);
     std::env::set_var("XDG_RUNTIME_DIR", dir.path());
 
-    let bin = env!("CARGO_BIN_EXE_nemux");
+    let bin = env!("CARGO_BIN_EXE_nux");
     let mut child = Command::new(bin)
         .arg("__daemon")
         .env("USER", &user)
@@ -143,7 +143,7 @@ fn rename_and_ping() {
 
     // `conn` is now attached to the tab and will start receiving async `Screen`
     // pushes, so issue the next request/response pair on a fresh connection
-    // instead of racing those pushes (this mirrors how the real `nemux rename`
+    // instead of racing those pushes (this mirrors how the real `nux rename`
     // CLI command behaves: it never attaches).
     let mut rename_conn = client::connect().unwrap();
     let resp = client::request_once(&mut rename_conn, &Request::RenameTab { tab_id, title: "hello".into() })

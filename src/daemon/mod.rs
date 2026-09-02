@@ -1,4 +1,4 @@
-//! The nemux daemon: accepts local socket connections and dispatches requests
+//! The nux daemon: accepts local socket connections and dispatches requests
 //! against a shared [`manager::TabManager`].
 
 pub mod manager;
@@ -37,7 +37,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     };
 
-    log::info!("nemux daemon listening (pid {})", std::process::id());
+    log::info!("nux daemon listening (pid {})", std::process::id());
 
     let manager = TabManager::new(config.scrollback_lines);
     let conn_counter = AtomicU64::new(0);
@@ -60,7 +60,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
 
 fn remove_stale_socket_file() {
     let path = crate::ipc::runtime_dir().join(format!(
-        "nemux-{}.sock",
+        "nux-{}.sock",
         std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
             .unwrap_or_else(|_| "default".into())

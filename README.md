@@ -1,4 +1,4 @@
-# nemux
+# nux
 
 A modern, daemon-backed terminal multiplexer. Sessions live in a background
 daemon that starts automatically and keeps running independently of any
@@ -6,15 +6,15 @@ terminal you attach from — think tmux/screen, rebuilt around a client/server
 split with a first-class TUI tab bar instead of prefix-key chords.
 
 ```
-nemux                # open the tab overview, switch with a keystroke
-nemux codex           # run `codex` in a new tab and attach to it
-nemux -t codex        # jump to a tab whose title/program matches "codex"
-nemux -k 2             # kill tab 2
+nux                # open the tab overview, switch with a keystroke
+nux codex           # run `codex` in a new tab and attach to it
+nux -t codex        # jump to a tab whose title/program matches "codex"
+nux -k 2             # kill tab 2
 ```
 
 ## Features
 
-- **Daemon-backed sessions.** The first `nemux` invocation spawns a detached
+- **Daemon-backed sessions.** The first `nux` invocation spawns a detached
   background daemon (survives the launching shell exiting); every later
   invocation talks to it over a local socket. Tabs and their child processes
   outlive your terminal.
@@ -24,7 +24,7 @@ nemux -k 2             # kill tab 2
 - **Real terminal emulation per tab**, powered by `vt100`: colors, cursor
   shape, alternate screen apps (vim, htop, ...), and OSC title updates all
   work.
-- **Exited tabs stay put.** A process ending doesn't close its tab: nemux
+- **Exited tabs stay put.** A process ending doesn't close its tab: nux
   marks it `[exited]`, keeps its final screen (up to `scrollback_lines`) so
   you can see what happened, and leaves it in the list until you dismiss it —
   same close-tab key/command as always, applied twice (once to kill, once to
@@ -42,7 +42,7 @@ nemux -k 2             # kill tab 2
 
 ```sh
 cargo build --release
-# binary at target/release/nemux[.exe]
+# binary at target/release/nux[.exe]
 ```
 
 Requires a stable Rust toolchain (2021 edition). No system dependencies beyond
@@ -51,22 +51,22 @@ a C toolchain for a couple of transitive crates.
 ## Usage
 
 ```
-nemux                          Open the tab overview / attach to the last tab
-nemux <PROGRAM> [ARGS...]      Open PROGRAM in a new tab and attach to it
-nemux new <PROGRAM> [ARGS...]  Same, for programs that collide with a nemux
-                                subcommand name (e.g. `nemux new ls`)
-nemux -t <SELECTOR>            Attach to a tab by id, title or program name
-nemux -k <SELECTOR>            Kill (or, if already exited, dismiss) a tab
-nemux attach <SELECTOR>        Same as -t
-nemux kill <SELECTOR>          Same as -k
-nemux rename <SELECTOR> <TITLE> Rename a tab
-nemux ls | list                 List open tabs (plain text, non-interactive)
-nemux status                   Show whether the daemon is running
-nemux kill-server              Kill every tab and stop the daemon
-nemux restart-server           Restart the daemon (open tabs are lost)
-nemux config                   Print the config file path
-nemux -h | --help              Show help
-nemux -V | --version           Show the version
+nux                          Open the tab overview / attach to the last tab
+nux <PROGRAM> [ARGS...]      Open PROGRAM in a new tab and attach to it
+nux new <PROGRAM> [ARGS...]  Same, for programs that collide with a nux
+                                subcommand name (e.g. `nux new ls`)
+nux -t <SELECTOR>            Attach to a tab by id, title or program name
+nux -k <SELECTOR>            Kill (or, if already exited, dismiss) a tab
+nux attach <SELECTOR>        Same as -t
+nux kill <SELECTOR>          Same as -k
+nux rename <SELECTOR> <TITLE> Rename a tab
+nux ls | list                 List open tabs (plain text, non-interactive)
+nux status                   Show whether the daemon is running
+nux kill-server              Kill every tab and stop the daemon
+nux restart-server           Restart the daemon (open tabs are lost)
+nux config                   Print the config file path
+nux -h | --help              Show help
+nux -V | --version           Show the version
 ```
 
 ### Selectors
@@ -74,22 +74,22 @@ nemux -V | --version           Show the version
 A *selector* (used by `-t`/`attach`, `-k`/`kill`, `rename`) is tried in order
 as:
 
-1. An exact numeric tab id (`nemux -t 0`).
+1. An exact numeric tab id (`nux -t 0`).
 2. A case-insensitive substring match against the tab's title **or** its
-   program name (`nemux -t codex` matches a tab titled "codex session" or
+   program name (`nux -t codex` matches a tab titled "codex session" or
    running `/usr/bin/codex`).
 
-If more than one tab matches, nemux prints a numbered list and asks you to
+If more than one tab matches, nux prints a numbered list and asks you to
 pick — from the shell for `-t`/`-k`/`rename`, or as an in-TUI popup for the
 picker keybind (see below).
 
 ### Opening a specific program
 
-`nemux <program> [args...]` is the fast path: it creates a new tab running
+`nux <program> [args...]` is the fast path: it creates a new tab running
 that exact command line and attaches to it immediately. Since a handful of
 words are reserved as subcommands (`ls`, `kill`, `attach`, `rename`,
 `kill-server`, `restart-server`, `status`, `config`, `new`, `run`), use
-`nemux new ls` (or `nemux run ls`) if you actually want to open a program
+`nux new ls` (or `nux run ls`) if you actually want to open a program
 named e.g. `ls` in a tab.
 
 ### Tab lifecycle
@@ -99,7 +99,7 @@ When a tab's process exits, the tab is **not** removed. It's marked
 the attached tab) and keeps whatever was on screen — up to `scrollback_lines`
 of it — so you can read what happened before deciding what to do next.
 
-Killing a tab (`Alt+X`, `nemux -k <selector>`, `nemux kill <selector>`) is
+Killing a tab (`Alt+X`, `nux -k <selector>`, `nux kill <selector>`) is
 therefore a two-step action on the same key/command:
 
 1. On a **running** tab: sends a termination signal to its process. The tab
@@ -113,7 +113,7 @@ automatically (see [Architecture](#architecture)) — there's no need to run
 
 ## Keybindings
 
-Configured in `config.toml` (path shown by `nemux config`, created with these
+Configured in `config.toml` (path shown by `nux config`, created with these
 defaults on first run):
 
 | Action           | Default       |
@@ -128,7 +128,7 @@ defaults on first run):
 
 Any key not bound to an action is forwarded to the attached program as
 terminal input, including `Ctrl+C` — so it reaches your shell/program as
-usual, not nemux.
+usual, not nux.
 
 Keys are written as `Modifier+Modifier+Key`, e.g. `"Ctrl+Shift+n"`,
 `"Alt+Right"`, `"F2"`. Supported modifiers: `Ctrl`, `Alt`, `Shift`.
@@ -148,13 +148,13 @@ picker = "Alt+/"
 
 A top-level `shell = "..."` key (absent by default, so not shown in the
 generated file above) overrides the program used for new tabs opened without
-an explicit command; without it, nemux uses `$SHELL` on Unix and `%COMSPEC%`
+an explicit command; without it, nux uses `$SHELL` on Unix and `%COMSPEC%`
 on Windows.
 
 ## Architecture
 
 ```
-   nemux (client, any invocation)  <── local socket ──>  nemux __daemon
+   nux (client, any invocation)  <── local socket ──>  nux __daemon
         │                                                     │
         │ TUI: ratatui + crossterm                            │ one PTY per tab
         │ mirrors screen state with its own                   │ (portable-pty)
@@ -179,7 +179,7 @@ on Windows.
   pair, length-prefixed bincode over the socket. Requests always flow
   client→daemon, responses always flow daemon→client, so one connection's two
   halves never need to distinguish message shapes.
-- **Client** (`src/client/`): `nemux` with no special flags spawns the daemon
+- **Client** (`src/client/`): `nux` with no special flags spawns the daemon
   if needed (`__daemon`, detached — `setsid` on Unix, `DETACHED_PROCESS` on
   Windows), then either runs the interactive TUI (`client::tui`) or, for
   plain commands like `ls`/`kill`/`rename`, sends one request and prints the
@@ -198,9 +198,9 @@ cargo test           # unit tests + integration tests that spawn a real,
 cargo clippy --all-targets
 ```
 
-`RUST_LOG=debug nemux` (or set it before the daemon auto-starts) turns on
+`RUST_LOG=debug nux` (or set it before the daemon auto-starts) turns on
 verbose daemon logging; daemon stdout/stderr always go to
-`nemux status`'s reported log path regardless of `RUST_LOG`.
+`nux status`'s reported log path regardless of `RUST_LOG`.
 
 ## Platform support
 

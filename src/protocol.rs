@@ -1,4 +1,4 @@
-//! Wire protocol shared between the nemux daemon and its clients.
+//! Wire protocol shared between the nux daemon and its clients.
 //!
 //! Every message is length-prefixed (u32 little-endian byte count) followed by a
 //! bincode-encoded payload. Requests always flow client -> daemon, responses always
