@@ -62,6 +62,16 @@ jobs:
 
       - run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Compress binary with UPX
+        # Best-effort: if UPX can't handle a particular target, ship that
+        # binary uncompressed rather than failing the whole release.
+        continue-on-error: true
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          version: latest
+          files: target/${{ matrix.target }}/release/nux${{ matrix.asset_os == 'windows' && '.exe' || '' }}
+          args: --best --lzma
+
       - name: Package
         shell: bash
         run: |
