@@ -14,6 +14,9 @@ pub struct Config {
     pub shell: Option<String>,
     /// Lines of scrollback kept per tab by the terminal emulator.
     pub scrollback_lines: usize,
+    /// Remove a tab as soon as its process exits, instead of leaving it
+    /// visible (marked `[exited]`) until dismissed.
+    pub auto_close_exited_tabs: bool,
     pub keybindings: Keybindings,
     pub layout: LayoutConfig,
 }
@@ -23,6 +26,7 @@ impl Default for Config {
         Self {
             shell: None,
             scrollback_lines: 5000,
+            auto_close_exited_tabs: false,
             keybindings: Keybindings::default(),
             layout: LayoutConfig::default(),
         }

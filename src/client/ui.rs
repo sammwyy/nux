@@ -123,9 +123,9 @@ fn tab_style(tab: &TabInfo, active: bool) -> Style {
         let base = Style::default().add_modifier(Modifier::BOLD);
         if dead { base.fg(Color::Black).bg(Color::Yellow) } else { base.fg(Color::Black).bg(Color::Cyan) }
     } else if dead {
-        Style::default().fg(Color::DarkGray).bg(Color::Black)
+        Style::default().fg(Color::DarkGray)
     } else {
-        Style::default().fg(Color::White).bg(Color::DarkGray)
+        Style::default().fg(Color::Gray)
     };
     if tab.bell && !active {
         style = style.fg(Color::Yellow);
@@ -212,7 +212,7 @@ fn render_tab_bar(f: &mut Frame, area: Rect, state: &State) {
         spans.push(Span::styled(status.clone(), Style::default().fg(Color::Red)));
     }
 
-    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::DarkGray)), area);
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn render_workspace_bar(f: &mut Frame, area: Rect, state: &State) {
@@ -222,7 +222,7 @@ fn render_workspace_bar(f: &mut Frame, area: Rect, state: &State) {
         .find(|t| Some(t.id) == state.current_tab)
         .map(|t| trim_path(&t.workspace, area.width))
         .unwrap_or_default();
-    let p = Paragraph::new(text).alignment(Alignment::Right).style(Style::default().fg(Color::Gray).bg(Color::Black));
+    let p = Paragraph::new(text).alignment(Alignment::Right).style(Style::default().fg(Color::DarkGray));
     f.render_widget(p, area);
 }
 

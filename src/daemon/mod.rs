@@ -8,7 +8,7 @@ use crate::config::Config;
 use crate::protocol::{read_message, write_message, Request, Response};
 use interprocess::local_socket::traits::{ListenerExt as _, Stream as _};
 use interprocess::local_socket::{ListenerOptions, Stream};
-use manager::{KillOutcome, TabManager};
+use manager::{exit_when_empty, KillOutcome, TabManager};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 
@@ -39,7 +39,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
 
     log::info!("nux daemon listening (pid {})", std::process::id());
 
-    let manager = TabManager::new(config.scrollback_lines);
+    let manager = TabManager::new(config.scrollback_lines, config.auto_close_exited_tabs);
     let conn_counter = AtomicU64::new(0);
 
     for conn in listener.incoming() {
@@ -79,15 +79,6 @@ fn clamp_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.max(1), rows.max(1))
 }
 
-/// Terminates the daemon process once the last tab has been dismissed —
-/// mirroring how a tmux server exits when its last session is killed. The
-/// short sleep gives the just-sent response a chance to actually reach the
-/// client before the socket goes away.
-fn exit_when_empty() -> ! {
-    log::info!("no tabs remain; shutting down");
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    std::process::exit(0);
-}
 
 fn handle_connection(stream: Stream, manager: TabManager, conn_id: u64) {
     let (mut recv, mut send) = stream.split();

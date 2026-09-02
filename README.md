@@ -116,6 +116,9 @@ Once the last tab is dismissed this way, the daemon shuts itself down
 automatically (see [Architecture](#architecture)) — there's no need to run
 `nux daemon kill` by hand after closing everything from inside the TUI.
 
+Set `auto_close_exited_tabs = true` in `config.toml` to go back to removing a
+tab the instant its process exits, with no `[exited]` state in between.
+
 ## Keybindings
 
 Configured in `config.toml` (path shown by `nux config`, created with these
@@ -140,6 +143,7 @@ Keys are written as `Modifier+Modifier+Key`, e.g. `"Ctrl+Shift+n"`,
 
 ```toml
 scrollback_lines = 5000
+auto_close_exited_tabs = false
 
 [keybindings]
 new_tab = "Alt+n"

@@ -185,6 +185,15 @@ impl Tab {
         self.broadcast(|| Response::TabClosed(self.id));
     }
 
+    /// Records the process's exit and tells subscribers, without removing
+    /// the tab. Used when exited tabs are left around for the user to
+    /// dismiss (see `Config::auto_close_exited_tabs`).
+    pub fn mark_exited(&self, exit: ExitInfo) {
+        self.state.lock().unwrap().exit = Some(exit);
+        let info = self.info();
+        self.broadcast(|| Response::TabUpdated(info.clone()));
+    }
+
     fn broadcast(&self, event_for: impl Fn() -> Response) {
         let mut subs = self.subscribers.lock().unwrap();
         subs.retain(|_, tx| tx.send(event_for()).is_ok());
@@ -196,9 +205,15 @@ fn exit_info(status: &ExitStatus) -> ExitInfo {
 }
 
 /// Starts the reader thread (pumps PTY output) and the waiter thread
-/// ([`Child::wait`] is the reliable cross-platform exit signal; it marks the
-/// tab exited and closes the master to unstick the reader). See [`Tab::spawn`].
-pub fn spawn_reader(tab: std::sync::Arc<Tab>, mut reader: Box<dyn std::io::Read + Send>, mut child: Box<dyn Child + Send + Sync>) {
+/// ([`Child::wait`] is the reliable cross-platform exit signal; it closes the
+/// master to unstick the reader, then hands the tab and its `ExitInfo` to
+/// `on_exit` — e.g. to mark it exited in place or remove it). See [`Tab::spawn`].
+pub fn spawn_reader(
+    tab: std::sync::Arc<Tab>,
+    mut reader: Box<dyn std::io::Read + Send>,
+    mut child: Box<dyn Child + Send + Sync>,
+    on_exit: impl FnOnce(std::sync::Arc<Tab>, ExitInfo) + Send + 'static,
+) {
     let reader_tab = tab.clone();
     let reader_thread = std::thread::spawn(move || {
         let tab = reader_tab;
@@ -243,15 +258,10 @@ pub fn spawn_reader(tab: std::sync::Arc<Tab>, mut reader: Box<dyn std::io::Read 
         tab.alive.store(false, Ordering::SeqCst);
         tab.close_master();
         let _ = reader_thread.join();
-        {
-            let mut state = tab.state.lock().unwrap();
-            state.exit = Some(status.as_ref().map(exit_info).unwrap_or(ExitInfo {
-                code: 0,
-                success: true,
-                at: now_unix(),
-            }));
-        }
-        let info = tab.info();
-        tab.broadcast(|| Response::TabUpdated(info.clone()));
+        let exit = status
+            .as_ref()
+            .map(exit_info)
+            .unwrap_or(ExitInfo { code: 0, success: true, at: now_unix() });
+        on_exit(tab, exit);
     });
 }
