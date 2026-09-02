@@ -41,11 +41,31 @@ pub enum Row {
     Bottom,
 }
 
+impl Row {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "top" => Ok(Row::Top),
+            "bottom" => Ok(Row::Bottom),
+            other => Err(format!("expected \"top\" or \"bottom\", got {other:?}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
     Left,
     Right,
+}
+
+impl Side {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "left" => Ok(Side::Left),
+            "right" => Ok(Side::Right),
+            other => Err(format!("expected \"left\" or \"right\", got {other:?}")),
+        }
+    }
 }
 
 /// Where the two status bars render.
@@ -149,6 +169,91 @@ impl Config {
         let toml = toml::to_string_pretty(self).unwrap_or_default();
         std::fs::write(path, toml)
     }
+
+    /// Writes this config to disk at [`Config::config_path`].
+    pub fn save(&self) -> std::io::Result<()> {
+        self.write_default(&Self::config_path())
+    }
+
+    pub fn pretty(&self) -> String {
+        toml::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+fn parse_bool(s: &str) -> Result<bool, String> {
+    match s.to_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Ok(true),
+        "false" | "0" | "no" | "off" => Ok(false),
+        other => Err(format!("expected true/false, got {other:?}")),
+    }
+}
+
+fn keybind_field<'a>(kb: &'a mut Keybindings, name: &str) -> Option<&'a mut String> {
+    Some(match name {
+        "new_tab" => &mut kb.new_tab,
+        "next_tab" => &mut kb.next_tab,
+        "prev_tab" => &mut kb.prev_tab,
+        "close_tab" => &mut kb.close_tab,
+        "rename_tab" => &mut kb.rename_tab,
+        "detach" => &mut kb.detach,
+        "picker" => &mut kb.picker,
+        _ => return None,
+    })
+}
+
+/// Sets a dotted config key (e.g. `"scrollback_lines"`, `"keybindings.new_tab"`,
+/// `"layout.tab_bar_row"`) from a raw string, type-checking and — for
+/// keybindings and layout enums — semantically validating it first. Does not
+/// persist the change; call [`Config::save`] afterward.
+pub fn set_config_key(cfg: &mut Config, key: &str, value: &str) -> Result<(), String> {
+    if let Some(name) = key.strip_prefix("keybindings.") {
+        let field =
+            keybind_field(&mut cfg.keybindings, name).ok_or_else(|| format!("unknown keybinding {name:?}"))?;
+        parse_keybind(value)?;
+        *field = value.to_string();
+        return Ok(());
+    }
+    if let Some(name) = key.strip_prefix("layout.") {
+        match name {
+            "tab_bar_row" => cfg.layout.tab_bar_row = Row::parse(value)?,
+            "tab_bar_side" => cfg.layout.tab_bar_side = Side::parse(value)?,
+            "workspace_bar_row" => cfg.layout.workspace_bar_row = Row::parse(value)?,
+            "workspace_bar_side" => cfg.layout.workspace_bar_side = Side::parse(value)?,
+            "workspace_bar_width" => {
+                cfg.layout.workspace_bar_width =
+                    value.parse().map_err(|_| format!("workspace_bar_width must be an integer, got {value:?}"))?;
+            }
+            other => return Err(format!("unknown layout key {other:?}")),
+        }
+        return Ok(());
+    }
+    match key {
+        "scrollback_lines" => {
+            cfg.scrollback_lines =
+                value.parse().map_err(|_| format!("scrollback_lines must be a non-negative integer, got {value:?}"))?;
+        }
+        "auto_close_exited_tabs" => cfg.auto_close_exited_tabs = parse_bool(value)?,
+        "shell" => {
+            cfg.shell = if value.is_empty() || value.eq_ignore_ascii_case("none") {
+                None
+            } else {
+                Some(value.to_string())
+            };
+        }
+        other => return Err(format!("unknown config key {other:?}")),
+    }
+    Ok(())
+}
+
+/// Reads a dotted config key's current value, formatted as TOML (so a string
+/// comes back quoted, a bool as `true`/`false`, etc).
+pub fn get_config_key(cfg: &Config, key: &str) -> Option<String> {
+    let value = toml::Value::try_from(cfg).ok()?;
+    let mut cur = &value;
+    for part in key.split('.') {
+        cur = cur.get(part)?;
+    }
+    Some(cur.to_string())
 }
 
 /// A parsed keybinding: the key code plus required modifiers.
@@ -273,5 +378,49 @@ mod tests {
         let layout =
             LayoutConfig { tab_bar_row: Row::Top, workspace_bar_row: Row::Bottom, ..LayoutConfig::default() };
         assert_eq!(layout.reserved_rows(), (1, 1));
+    }
+
+    #[test]
+    fn set_config_key_updates_typed_fields() {
+        let mut cfg = Config::default();
+
+        set_config_key(&mut cfg, "scrollback_lines", "8000").unwrap();
+        assert_eq!(cfg.scrollback_lines, 8000);
+
+        set_config_key(&mut cfg, "auto_close_exited_tabs", "true").unwrap();
+        assert!(cfg.auto_close_exited_tabs);
+
+        set_config_key(&mut cfg, "shell", "/bin/zsh").unwrap();
+        assert_eq!(cfg.shell.as_deref(), Some("/bin/zsh"));
+        set_config_key(&mut cfg, "shell", "none").unwrap();
+        assert_eq!(cfg.shell, None);
+
+        set_config_key(&mut cfg, "keybindings.new_tab", "Ctrl+t").unwrap();
+        assert_eq!(cfg.keybindings.new_tab, "Ctrl+t");
+
+        set_config_key(&mut cfg, "layout.tab_bar_row", "Top").unwrap();
+        assert_eq!(cfg.layout.tab_bar_row, Row::Top);
+        set_config_key(&mut cfg, "layout.workspace_bar_width", "10").unwrap();
+        assert_eq!(cfg.layout.workspace_bar_width, 10);
+    }
+
+    #[test]
+    fn set_config_key_rejects_bad_types_and_unknown_keys() {
+        let mut cfg = Config::default();
+        assert!(set_config_key(&mut cfg, "scrollback_lines", "not-a-number").is_err());
+        assert!(set_config_key(&mut cfg, "auto_close_exited_tabs", "maybe").is_err());
+        assert!(set_config_key(&mut cfg, "layout.tab_bar_row", "sideways").is_err());
+        assert!(set_config_key(&mut cfg, "keybindings.new_tab", "not a keybind at all").is_err());
+        assert!(set_config_key(&mut cfg, "nonexistent", "x").is_err());
+        // Rejected sets must not mutate the config.
+        assert_eq!(cfg.scrollback_lines, Config::default().scrollback_lines);
+    }
+
+    #[test]
+    fn get_config_key_reads_current_values() {
+        let cfg = Config::default();
+        assert_eq!(get_config_key(&cfg, "scrollback_lines").as_deref(), Some("5000"));
+        assert_eq!(get_config_key(&cfg, "keybindings.new_tab").as_deref(), Some("\"Alt+n\""));
+        assert_eq!(get_config_key(&cfg, "nonexistent"), None);
     }
 }

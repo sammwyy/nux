@@ -70,7 +70,9 @@ nux ls | list                 List open tabs (plain text, non-interactive)
 nux daemon                   Show whether the daemon is running
 nux daemon kill               Kill every tab and stop the daemon
 nux daemon restart            Restart the daemon (open tabs are lost)
-nux config                   Print the config file path
+nux config                   Print the config path and its contents
+nux config <KEY>             Print one config value
+nux config <KEY> <VALUE>     Set and save one config value
 nux -h | --help              Show help
 nux -V | --version           Show the version
 ```
@@ -121,8 +123,10 @@ tab the instant its process exits, with no `[exited]` state in between.
 
 ## Keybindings
 
-Configured in `config.toml` (path shown by `nux config`, created with these
-defaults on first run):
+Configured in `config.toml` (edit by hand, or with `nux config <key> <value>`
+— dotted paths like `keybindings.new_tab` or `layout.tab_bar_row`, type- and
+value-checked before it's saved). `nux config` on its own pretty-prints the
+whole file; `nux config <key>` prints just that value. Defaults on first run:
 
 | Action           | Default       |
 |------------------|---------------|

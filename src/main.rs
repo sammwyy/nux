@@ -20,7 +20,9 @@ USAGE:
     nux daemon                 Show whether the daemon is running
     nux daemon kill            Kill every tab and stop the daemon
     nux daemon restart         Restart the daemon (tabs are lost)
-    nux config                 Print the config file path
+    nux config                 Print the config file path and its contents
+    nux config <KEY>           Print one config value
+    nux config <KEY> <VALUE>   Set and save one config value
     nux -h | --help            Show this help
     nux -V | --version         Show the version
 
@@ -31,7 +33,9 @@ SELECTORS
 
 CONFIG
     Keybindings and defaults live in nux/config.toml under your platform's
-    config directory (see `nux config`). Defaults:
+    config directory (see `nux config`). Nested keys use dots, e.g.
+    `nux config keybindings.new_tab "Alt+n"` or `nux config layout.tab_bar_row top`.
+    Defaults:
       Alt+N          new tab (default shell)
       Alt+Left/Right previous / next tab
       Alt+X          close current tab
@@ -87,10 +91,7 @@ fn dispatch(mut args: Vec<String>) -> anyhow::Result<()> {
             Some("restart") => daemon_restart(),
             Some(other) => anyhow::bail!("unknown `nux daemon` subcommand {other:?} (expected kill|restart)"),
         },
-        "config" => {
-            println!("{}", Config::config_path().display());
-            Ok(())
-        }
+        "config" => config_cmd(&args[1..]),
         "new" | "run" => {
             let command = args.split_off(1);
             client::tui::run(Config::load(), client::tui::Start::Create(command))
@@ -229,4 +230,33 @@ fn daemon_restart() -> anyhow::Result<()> {
     client::ensure_daemon()?;
     println!("nux daemon restarted");
     Ok(())
+}
+
+fn config_cmd(args: &[String]) -> anyhow::Result<()> {
+    match args {
+        [] => {
+            let cfg = Config::load();
+            println!("{}\n", Config::config_path().display());
+            print!("{}", cfg.pretty());
+            Ok(())
+        }
+        [key] => {
+            let cfg = Config::load();
+            match nux::config::get_config_key(&cfg, key) {
+                Some(value) => {
+                    println!("{value}");
+                    Ok(())
+                }
+                None => anyhow::bail!("unknown config key {key:?}"),
+            }
+        }
+        [key, value] => {
+            let mut cfg = Config::load();
+            nux::config::set_config_key(&mut cfg, key, value).map_err(|e| anyhow::anyhow!(e))?;
+            cfg.save()?;
+            println!("{key} = {value}");
+            Ok(())
+        }
+        _ => anyhow::bail!("usage: nux config [<key> [<value>]]"),
+    }
 }
