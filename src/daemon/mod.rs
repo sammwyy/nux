@@ -8,7 +8,7 @@ use crate::config::Config;
 use crate::protocol::{read_message, write_message, Request, Response};
 use interprocess::local_socket::traits::{ListenerExt as _, Stream as _};
 use interprocess::local_socket::{ListenerOptions, Stream};
-use manager::TabManager;
+use manager::{KillOutcome, TabManager};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 
@@ -72,6 +72,23 @@ fn write_pid_file() -> std::io::Result<()> {
     std::fs::write(crate::ipc::pid_file(), std::process::id().to_string())
 }
 
+/// A zero-sized PTY/`vt100` grid panics on the first cell access, so never
+/// let a client-supplied size (e.g. from a terminal that hasn't reported its
+/// real size yet) through as 0 in either dimension.
+fn clamp_size(cols: u16, rows: u16) -> (u16, u16) {
+    (cols.max(1), rows.max(1))
+}
+
+/// Terminates the daemon process once the last tab has been dismissed —
+/// mirroring how a tmux server exits when its last session is killed. The
+/// short sleep gives the just-sent response a chance to actually reach the
+/// client before the socket goes away.
+fn exit_when_empty() -> ! {
+    log::info!("no tabs remain; shutting down");
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    std::process::exit(0);
+}
+
 fn handle_connection(stream: Stream, manager: TabManager, conn_id: u64) {
     let (mut recv, mut send) = stream.split();
     let (tx, rx) = mpsc::channel::<Response>();
@@ -92,6 +109,7 @@ fn handle_connection(stream: Stream, manager: TabManager, conn_id: u64) {
                 let _ = tx.send(Response::TabList(manager.list()));
             }
             Request::CreateTab { command, cwd, cols, rows } => {
+                let (cols, rows) = clamp_size(cols, rows);
                 match manager.create(command, cwd, cols, rows) {
                     Ok(info) => {
                         // Order matters: the client only starts applying `Screen`
@@ -108,6 +126,7 @@ fn handle_connection(stream: Stream, manager: TabManager, conn_id: u64) {
             }
             Request::Attach { tab_id, cols, rows } => match manager.get(tab_id) {
                 Some(tab) => {
+                    let (cols, rows) = clamp_size(cols, rows);
                     let _ = tab.resize(cols, rows);
                     let _ = tx.send(Response::Attached(tab.info()));
                     attach(&manager, &mut current_tab, conn_id, tab_id, &tx);
@@ -126,18 +145,25 @@ fn handle_connection(stream: Stream, manager: TabManager, conn_id: u64) {
                 }
             }
             Request::Resize { cols, rows } => {
+                let (cols, rows) = clamp_size(cols, rows);
                 if let Some(tab) = current_tab.and_then(|id| manager.get(id)) {
                     let _ = tab.resize(cols, rows);
                 }
             }
-            Request::KillTab { tab_id } => {
-                let ok = manager.kill(tab_id);
-                let _ = tx.send(if ok {
-                    Response::Ok
-                } else {
-                    Response::Error(format!("no such tab: {tab_id}"))
-                });
-            }
+            Request::KillTab { tab_id } => match manager.kill(tab_id) {
+                KillOutcome::NotFound => {
+                    let _ = tx.send(Response::Error(format!("no such tab: {tab_id}")));
+                }
+                KillOutcome::Killed => {
+                    let _ = tx.send(Response::Ok);
+                }
+                KillOutcome::Removed { daemon_now_empty } => {
+                    let _ = tx.send(Response::TabClosed(tab_id));
+                    if daemon_now_empty {
+                        exit_when_empty();
+                    }
+                }
+            },
             Request::RenameTab { tab_id, title } => match manager.rename(tab_id, title) {
                 Some(info) => {
                     let _ = tx.send(Response::TabUpdated(info));
@@ -178,5 +204,18 @@ fn attach(
 fn detach(manager: &TabManager, current_tab: &mut Option<u32>, conn_id: u64) {
     if let Some(id) = current_tab.take() {
         manager.unsubscribe(id, conn_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_size_rejects_zero_dimensions() {
+        assert_eq!(clamp_size(0, 0), (1, 1));
+        assert_eq!(clamp_size(0, 24), (1, 24));
+        assert_eq!(clamp_size(80, 0), (80, 1));
+        assert_eq!(clamp_size(80, 24), (80, 24));
     }
 }

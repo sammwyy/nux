@@ -1,8 +1,8 @@
 //! A single tab: a PTY-backed child process plus the terminal emulator state that
 //! mirrors its screen.
 
-use crate::protocol::{Response, TabInfo};
-use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use crate::protocol::{ExitInfo, Response, TabInfo};
+use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +14,10 @@ struct TabState {
     parser: vt100::Parser,
     title: String,
     bell: bool,
+    /// Set once the child process's output stream ends. The tab (and its
+    /// final screen, bounded by the parser's scrollback limit) stays around
+    /// until a client explicitly dismisses it — see [`Tab::kill`].
+    exit: Option<ExitInfo>,
 }
 
 pub struct Tab {
@@ -37,17 +41,13 @@ fn now_unix() -> i64 {
 }
 
 impl Tab {
-    /// Spawns `command` in a new PTY of size `cols x rows` and starts the background
-    /// thread that pumps PTY output into the terminal emulator and out to subscribers.
-    ///
-    /// `on_exit` is invoked from the reader thread once the child process's output
-    /// stream ends (i.e. the process exited).
+    /// Spawns `command` in a new PTY of size `cols x rows`.
     ///
     /// Returns the tab plus the still-unstarted reader thread's inputs; the
     /// caller must call [`spawn_reader`] once the tab is registered wherever
-    /// `on_exit` expects to find it (e.g. inserted into the manager's map) —
-    /// otherwise a process that exits fast enough could have its `on_exit`
-    /// callback run and unregister it *before* it was ever registered.
+    /// it needs to be discoverable (e.g. inserted into the manager's map) —
+    /// otherwise a process that exits fast enough could be marked exited
+    /// before anyone could ever see it as running.
     #[allow(clippy::type_complexity)]
     pub fn spawn(
         id: u32,
@@ -99,6 +99,7 @@ impl Tab {
                 parser: vt100::Parser::new(rows, cols, scrollback_lines),
                 title: program,
                 bell: false,
+                exit: None,
             }),
             subscribers: Mutex::new(HashMap::new()),
             alive: AtomicBool::new(true),
@@ -119,6 +120,7 @@ impl Tab {
             cols,
             rows,
             bell: state.bell,
+            exit: state.exit,
         }
     }
 
@@ -146,6 +148,8 @@ impl Tab {
         state.title = title;
     }
 
+    /// Signals the child process to terminate. Does not remove the tab: the
+    /// reader thread will observe the process exiting and mark it as such.
     pub fn kill(&self) {
         let _ = self.killer.lock().unwrap().kill();
     }
@@ -164,20 +168,26 @@ impl Tab {
         self.subscribers.lock().unwrap().remove(&conn_id);
     }
 
+    /// Tells every current subscriber that this tab was dismissed/removed
+    /// entirely (as opposed to just having exited). Used by the manager when
+    /// a client kills an already-dead tab.
+    pub fn broadcast_closed(&self) {
+        self.broadcast(|| Response::TabClosed(self.id));
+    }
+
     fn broadcast(&self, event_for: impl Fn() -> Response) {
         let mut subs = self.subscribers.lock().unwrap();
         subs.retain(|_, tx| tx.send(event_for()).is_ok());
     }
 }
 
+fn exit_info(status: &ExitStatus) -> ExitInfo {
+    ExitInfo { code: status.exit_code(), success: status.success(), at: now_unix() }
+}
+
 /// Starts the background thread that pumps a tab's PTY output into its
 /// terminal emulator and out to subscribers. See [`Tab::spawn`].
-pub fn spawn_reader(
-    tab: std::sync::Arc<Tab>,
-    mut reader: Box<dyn std::io::Read + Send>,
-    mut child: Box<dyn Child + Send + Sync>,
-    on_exit: impl FnOnce(u32) + Send + 'static,
-) {
+pub fn spawn_reader(tab: std::sync::Arc<Tab>, mut reader: Box<dyn std::io::Read + Send>, mut child: Box<dyn Child + Send + Sync>) {
     std::thread::spawn(move || {
         let mut buf = [0u8; 32 * 1024];
         loop {
@@ -214,8 +224,16 @@ pub fn spawn_reader(
             }
         }
         tab.alive.store(false, Ordering::SeqCst);
-        let _ = child.wait();
-        tab.broadcast(|| Response::TabClosed(tab.id));
-        on_exit(tab.id);
+        let status = child.wait().ok();
+        {
+            let mut state = tab.state.lock().unwrap();
+            state.exit = Some(status.as_ref().map(exit_info).unwrap_or(ExitInfo {
+                code: 0,
+                success: true,
+                at: now_unix(),
+            }));
+        }
+        let info = tab.info();
+        tab.broadcast(|| Response::TabUpdated(info.clone()));
     });
 }

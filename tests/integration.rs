@@ -93,22 +93,33 @@ fn create_list_kill_roundtrip() {
         other => panic!("expected TabList, got {other:?}"),
     }
 
+    // First kill: the process is still running, so this just signals it.
+    // The tab is *not* removed — it stays listed until marked exited and
+    // then explicitly dismissed.
     let resp = client::request_once(&mut list_conn, &Request::KillTab { tab_id }).unwrap();
     assert!(matches!(resp, Response::Ok));
 
-    // Killing releases the tab eventually (the reader thread notices EOF async).
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         let mut conn = client::connect().unwrap();
         let resp = client::request_once(&mut conn, &Request::ListTabs).unwrap();
         if let Response::TabList(tabs) = resp {
-            if tabs.is_empty() {
+            assert_eq!(tabs.len(), 1, "killed tab should stay listed until dismissed");
+            if !tabs[0].is_alive() {
                 break;
             }
         }
-        assert!(Instant::now() < deadline, "tab was not cleaned up after kill");
+        assert!(Instant::now() < deadline, "tab was not marked exited after being killed");
         std::thread::sleep(Duration::from_millis(50));
     }
+
+    // Second kill, on the now-exited tab: dismisses/removes it for good. It
+    // was the only tab, so the daemon also shuts itself down right after —
+    // see `daemon_exits_once_last_tab_is_dismissed` for that behavior in
+    // isolation; here we just confirm the connection survives long enough to
+    // see the dismissal response before the daemon goes away.
+    let resp = client::request_once(&mut list_conn, &Request::KillTab { tab_id }).unwrap();
+    assert!(matches!(resp, Response::TabClosed(id) if id == tab_id));
 }
 
 #[test]
@@ -161,6 +172,51 @@ fn shutdown_stops_the_daemon() {
     let mut conn = client::connect().unwrap();
     let resp = client::request_once(&mut conn, &Request::Shutdown).unwrap();
     assert!(matches!(resp, Response::Ok));
+
+    let status = daemon.child.wait().unwrap();
+    assert!(status.success());
+    assert!(!client::is_running());
+}
+
+#[test]
+fn daemon_exits_once_last_tab_is_dismissed() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut daemon = spawn_isolated_daemon("empty-shutdown");
+
+    // `create_conn` ends up attached (subscribed) to the tab it creates, so
+    // it must not be reused for plain request/response calls afterward (it
+    // may start receiving async `Screen`/`TabUpdated` pushes) — use a fresh
+    // connection for everything else, like the CLI's one-shot commands do.
+    let mut create_conn = client::connect().unwrap();
+    let resp = client::request_once(
+        &mut create_conn,
+        &Request::CreateTab { command: vec!["true".into()], cwd: None, cols: 80, rows: 24 },
+    )
+    .unwrap();
+    let tab_id = match resp {
+        Response::Attached(info) => info.id,
+        other => panic!("expected Attached, got {other:?}"),
+    };
+
+    // Wait for `true` to exit and get marked as such.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let mut poll_conn = client::connect().unwrap();
+        let resp = client::request_once(&mut poll_conn, &Request::ListTabs).unwrap();
+        if let Response::TabList(tabs) = resp {
+            if tabs.iter().any(|t| t.id == tab_id && !t.is_alive()) {
+                break;
+            }
+        }
+        assert!(Instant::now() < deadline, "tab never got marked exited");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // Dismissing the only (now-dead) tab should make the daemon shut itself
+    // down, the same way a tmux server exits when its last session is killed.
+    let mut kill_conn = client::connect().unwrap();
+    let resp = client::request_once(&mut kill_conn, &Request::KillTab { tab_id }).unwrap();
+    assert!(matches!(resp, Response::TabClosed(id) if id == tab_id));
 
     let status = daemon.child.wait().unwrap();
     assert!(status.success());

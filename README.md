@@ -24,6 +24,14 @@ nemux -k 2             # kill tab 2
 - **Real terminal emulation per tab**, powered by `vt100`: colors, cursor
   shape, alternate screen apps (vim, htop, ...), and OSC title updates all
   work.
+- **Exited tabs stay put.** A process ending doesn't close its tab: nemux
+  marks it `[exited]`, keeps its final screen (up to `scrollback_lines`) so
+  you can see what happened, and leaves it in the list until you dismiss it —
+  same close-tab key/command as always, applied twice (once to kill, once to
+  dismiss).
+- **The daemon shuts itself down** once the last tab is dismissed — like a
+  tmux server exiting when its last session is killed — so nothing lingers
+  once you're done.
 - **Configurable keybindings** (`config.toml`), sensible defaults, no
   mandatory prefix key.
 - **Cross-platform.** PTYs via `portable-pty` (ConPTY on Windows, real PTYs on
@@ -48,7 +56,7 @@ nemux <PROGRAM> [ARGS...]      Open PROGRAM in a new tab and attach to it
 nemux new <PROGRAM> [ARGS...]  Same, for programs that collide with a nemux
                                 subcommand name (e.g. `nemux new ls`)
 nemux -t <SELECTOR>            Attach to a tab by id, title or program name
-nemux -k <SELECTOR>            Kill a tab by id, title or program name
+nemux -k <SELECTOR>            Kill (or, if already exited, dismiss) a tab
 nemux attach <SELECTOR>        Same as -t
 nemux kill <SELECTOR>          Same as -k
 nemux rename <SELECTOR> <TITLE> Rename a tab
@@ -83,6 +91,25 @@ words are reserved as subcommands (`ls`, `kill`, `attach`, `rename`,
 `kill-server`, `restart-server`, `status`, `config`, `new`, `run`), use
 `nemux new ls` (or `nemux run ls`) if you actually want to open a program
 named e.g. `ls` in a tab.
+
+### Tab lifecycle
+
+When a tab's process exits, the tab is **not** removed. It's marked
+`[exited]` in the tab bar (with the exit code, if nonzero, shown while it's
+the attached tab) and keeps whatever was on screen — up to `scrollback_lines`
+of it — so you can read what happened before deciding what to do next.
+
+Killing a tab (`Alt+X`, `nemux -k <selector>`, `nemux kill <selector>`) is
+therefore a two-step action on the same key/command:
+
+1. On a **running** tab: sends a termination signal to its process. The tab
+   stays listed, now waiting to be marked exited.
+2. On an **already-exited** tab: dismisses it — this is the step that
+   actually removes it from the list.
+
+Once the last tab is dismissed this way, the daemon shuts itself down
+automatically (see [Architecture](#architecture)) — there's no need to run
+`kill-server` by hand after closing everything from inside the TUI.
 
 ## Keybindings
 
@@ -144,7 +171,10 @@ on Windows.
   runs its child process in a PTY and has a dedicated thread that reads PTY
   output, feeds it through a `vt100::Parser` to keep authoritative screen
   state, and pushes the resulting diff (or, for the first subscriber, a full
-  redraw) to every client currently attached to it.
+  redraw) to every client currently attached to it. When that thread hits
+  EOF, it records the process's exit status on the tab instead of removing
+  it (`TabManager::kill` only ever removes a tab that's already marked
+  exited); removing the last tab this way makes the daemon exit the process.
 - **Wire protocol** (`src/protocol.rs`): a small `Request`/`Response` enum
   pair, length-prefixed bincode over the socket. Requests always flow
   client→daemon, responses always flow daemon→client, so one connection's two

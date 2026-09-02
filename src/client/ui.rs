@@ -91,9 +91,17 @@ fn tab_bar(state: &State) -> Paragraph<'static> {
     for tab in &state.tabs {
         let active = Some(tab.id) == state.current_tab;
         let title = if tab.title.is_empty() { tab.program().to_string() } else { tab.title.clone() };
-        let label = format!(" {}:{title} ", tab.id);
+        let dead = tab.exit.is_some();
+        let label = if dead { format!(" {}:{title} [exited] ", tab.id) } else { format!(" {}:{title} ", tab.id) };
         let mut style = if active {
-            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            let base = Style::default().add_modifier(Modifier::BOLD);
+            if dead {
+                base.fg(Color::Black).bg(Color::Yellow)
+            } else {
+                base.fg(Color::Black).bg(Color::Cyan)
+            }
+        } else if dead {
+            Style::default().fg(Color::DarkGray).bg(Color::Black)
         } else {
             Style::default().fg(Color::White).bg(Color::DarkGray)
         };
@@ -102,6 +110,24 @@ fn tab_bar(state: &State) -> Paragraph<'static> {
         }
         spans.push(Span::styled(label, style));
     }
+
+    // If the attached tab has exited, explain why right in the bar — its
+    // frozen final screen stays visible above, but nothing more will happen
+    // there until the user dismisses it or switches away.
+    if let Some(cur) = state.tabs.iter().find(|t| Some(t.id) == state.current_tab) {
+        if let Some(exit) = cur.exit {
+            let msg = if exit.success {
+                " process exited — close-tab to dismiss, new-tab to open another ".to_string()
+            } else {
+                format!(
+                    " process exited (code {}) — close-tab to dismiss, new-tab to open another ",
+                    exit.code
+                )
+            };
+            spans.push(Span::styled(msg, Style::default().fg(Color::Black).bg(Color::Yellow)));
+        }
+    }
+
     if let Some(status) = &state.status {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(status.clone(), Style::default().fg(Color::Red)));

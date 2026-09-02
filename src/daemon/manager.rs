@@ -12,6 +12,17 @@ pub struct TabManager {
     inner: Arc<Inner>,
 }
 
+/// Result of [`TabManager::kill`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KillOutcome {
+    NotFound,
+    /// The process was signaled; the tab remains, to be marked exited once
+    /// it actually dies.
+    Killed,
+    /// The tab was already exited and has now been dismissed/removed.
+    Removed { daemon_now_empty: bool },
+}
+
 struct Inner {
     tabs: Mutex<HashMap<u32, Arc<Tab>>>,
     next_id: AtomicU32,
@@ -58,13 +69,11 @@ impl TabManager {
         let (tab, reader, child) =
             Tab::spawn(id, command, cwd, cols, rows, self.inner.scrollback_lines)?;
         let info = tab.info();
-        // Register the tab before the reader thread can possibly observe the
-        // child exiting and try to remove it again — otherwise a process that
-        // exits within microseconds could have `remove` run before `insert`,
-        // leaving a dead entry that nothing ever cleans up.
+        // Register before starting the reader thread: a process that exits
+        // within microseconds would otherwise be marked exited on a tab that
+        // was never actually visible to anyone.
         self.inner.tabs.lock().unwrap().insert(id, tab.clone());
-        let manager = self.clone();
-        super::tab::spawn_reader(tab, reader, child, move |exited_id| manager.remove(exited_id));
+        super::tab::spawn_reader(tab, reader, child);
         Ok(info)
     }
 
@@ -79,12 +88,25 @@ impl TabManager {
         infos
     }
 
-    pub fn kill(&self, id: u32) -> bool {
-        if let Some(tab) = self.inner.tabs.lock().unwrap().get(&id) {
-            tab.kill();
-            true
-        } else {
-            false
+    /// If `id`'s process is still running, signals it to terminate (the tab
+    /// stays around, to be marked exited asynchronously once the process
+    /// actually dies). If `id` is already marked exited, dismisses/removes
+    /// it instead — telling the caller whether that was the last tab, so the
+    /// daemon can shut itself down.
+    pub fn kill(&self, id: u32) -> KillOutcome {
+        let mut tabs = self.inner.tabs.lock().unwrap();
+        match tabs.get(&id) {
+            None => KillOutcome::NotFound,
+            Some(tab) if tab.is_alive() => {
+                tab.kill();
+                KillOutcome::Killed
+            }
+            Some(_) => {
+                if let Some(tab) = tabs.remove(&id) {
+                    tab.broadcast_closed();
+                }
+                KillOutcome::Removed { daemon_now_empty: tabs.is_empty() }
+            }
         }
     }
 
@@ -93,10 +115,6 @@ impl TabManager {
         let tab = tabs.get(&id)?;
         tab.rename(title);
         Some(tab.info())
-    }
-
-    pub fn remove(&self, id: u32) {
-        self.inner.tabs.lock().unwrap().remove(&id);
     }
 
     pub fn kill_all(&self) {
@@ -128,16 +146,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn create_list_and_kill_a_tab() {
+    fn exited_tab_stays_until_dismissed() {
         let manager = TabManager::new(1000);
         // `true` is a real binary on Unix and exits immediately; good enough to
         // exercise the manager without depending on a shell being interactive.
         let info = manager.create(vec!["true".into()], None, 80, 24).unwrap();
         assert_eq!(info.id, 0);
 
-        // Give the reader thread a moment to observe process exit and self-remove.
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        assert!(manager.list().iter().all(|t| t.id != info.id), "exited tab should be cleaned up");
+        // The tab is marked exited, but stays listed — not silently removed.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let tabs = manager.list();
+            assert_eq!(tabs.len(), 1, "tab should still be listed after its process exits");
+            if !tabs[0].is_alive() {
+                assert!(tabs[0].exit.unwrap().success, "`true` should exit successfully");
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "tab never got marked exited");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        // Killing an already-dead tab dismisses it, and reports the manager is
+        // now empty so the daemon knows it can shut down.
+        match manager.kill(info.id) {
+            KillOutcome::Removed { daemon_now_empty } => assert!(daemon_now_empty),
+            other => panic!("expected Removed, got {other:?}"),
+        }
+        assert!(manager.list().is_empty());
+    }
+
+    #[test]
+    fn killing_a_running_tab_does_not_remove_it() {
+        let manager = TabManager::new(1000);
+        let info = manager.create(vec!["sleep".into(), "30".into()], None, 80, 24).unwrap();
+        assert_eq!(manager.kill(info.id), KillOutcome::Killed);
+        assert_eq!(manager.list().len(), 1, "tab should still be listed right after signaling it");
+    }
+
+    #[test]
+    fn kill_missing_tab_reports_not_found() {
+        let manager = TabManager::new(1000);
+        assert_eq!(manager.kill(42), KillOutcome::NotFound);
     }
 
     #[test]

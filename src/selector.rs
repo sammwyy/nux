@@ -43,6 +43,7 @@ mod tests {
             cols: 80,
             rows: 24,
             bell: false,
+            exit: None,
         }
     }
 

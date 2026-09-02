@@ -148,7 +148,13 @@ fn kill_by_selector(selector: &str) -> anyhow::Result<()> {
         let tab = resolve_one(s, selector)?;
         match client::request_once(s, &Request::KillTab { tab_id: tab.id })? {
             Response::Ok => {
-                println!("killed tab {} ({})", tab.id, tab.program());
+                println!("sent kill signal to tab {} ({})", tab.id, tab.program());
+                Ok(())
+            }
+            // The tab was already exited, so this call dismissed/removed it
+            // outright instead of signaling a (nonexistent) process.
+            Response::TabClosed(_) => {
+                println!("dismissed exited tab {} ({})", tab.id, tab.program());
                 Ok(())
             }
             Response::Error(e) => anyhow::bail!(e),
@@ -184,7 +190,12 @@ fn list_tabs() -> anyhow::Result<()> {
     for t in &tabs {
         let title = if t.title.is_empty() { t.program() } else { &t.title };
         let pid = t.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
-        println!("{:>3}  {:<20} pid={:<8} {}x{}", t.id, title, pid, t.cols, t.rows);
+        let status = match t.exit {
+            None => "running".to_string(),
+            Some(e) if e.success => "exited".to_string(),
+            Some(e) => format!("exited(code {})", e.code),
+        };
+        println!("{:>3}  {:<20} pid={:<8} {}x{}  {status}", t.id, title, pid, t.cols, t.rows);
     }
     Ok(())
 }

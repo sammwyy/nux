@@ -11,6 +11,23 @@ use std::io::{self, Read, Write};
 /// Messages larger than this are rejected instead of causing an unbounded allocation.
 const MAX_MESSAGE_SIZE: u32 = 64 * 1024 * 1024;
 
+/// Why a tab's process is no longer running.
+///
+/// A dead tab is *not* removed automatically: its final screen (bounded by
+/// `scrollback_lines`, see [`crate::config::Config`]) stays visible and the
+/// tab stays in the list until the user explicitly dismisses it (killing an
+/// already-dead tab removes it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExitInfo {
+    /// Process exit code (best-effort; some platforms report `1` for a
+    /// signal death since `portable_pty::ExitStatus` doesn't expose the
+    /// signal itself).
+    pub code: u32,
+    pub success: bool,
+    /// Unix timestamp of when the process was observed to have exited.
+    pub at: i64,
+}
+
 /// Snapshot of a single tab's metadata, as seen from outside the daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabInfo {
@@ -22,6 +39,8 @@ pub struct TabInfo {
     pub cols: u16,
     pub rows: u16,
     pub bell: bool,
+    /// `None` while the process is running; `Some` once it has exited.
+    pub exit: Option<ExitInfo>,
 }
 
 impl TabInfo {
@@ -34,6 +53,10 @@ impl TabInfo {
             .rsplit(['/', '\\'])
             .next()
             .unwrap_or("?")
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.exit.is_none()
     }
 }
 
@@ -57,7 +80,9 @@ pub enum Request {
     Input(Vec<u8>),
     /// Resize the currently attached tab's PTY.
     Resize { cols: u16, rows: u16 },
-    /// Kill a tab by id.
+    /// Kill a tab by id. If the tab's process is still running, this signals
+    /// it to terminate (the tab then stays around, marked exited). If the
+    /// tab is already marked exited, this dismisses/removes it instead.
     KillTab { tab_id: u32 },
     /// Rename a tab.
     RenameTab { tab_id: u32, title: String },
@@ -78,6 +103,7 @@ pub enum Response {
     /// through a `vt100::Parser` sized to the same dimensions.
     Screen { tab_id: u32, data: Vec<u8> },
     TabUpdated(TabInfo),
+    /// A tab was dismissed/removed entirely (as opposed to just exiting).
     TabClosed(u32),
     Pong,
 }
@@ -147,6 +173,7 @@ mod tests {
             cols: 120,
             rows: 40,
             bell: false,
+            exit: None,
         }]);
         let mut buf = Vec::new();
         write_message(&mut buf, &resp).unwrap();
@@ -181,7 +208,26 @@ mod tests {
             cols: 80,
             rows: 24,
             bell: false,
+            exit: None,
         };
         assert_eq!(info.program(), "codex");
+    }
+
+    #[test]
+    fn is_alive_reflects_exit_field() {
+        let mut info = TabInfo {
+            id: 0,
+            title: "t".into(),
+            command: vec!["bash".into()],
+            pid: None,
+            created_at: 0,
+            cols: 80,
+            rows: 24,
+            bell: false,
+            exit: None,
+        };
+        assert!(info.is_alive());
+        info.exit = Some(ExitInfo { code: 0, success: true, at: 0 });
+        assert!(!info.is_alive());
     }
 }

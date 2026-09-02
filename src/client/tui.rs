@@ -77,8 +77,11 @@ impl State {
     }
 }
 
+/// Clamps to a minimum of 1x1: a terminal that hasn't reported a real size
+/// yet (or a misbehaving one) can hand back 0 for either dimension, and a
+/// zero-sized `vt100` grid panics on the first cell access.
 fn viewport(term_size: (u16, u16)) -> (u16, u16) {
-    (term_size.0, term_size.1.saturating_sub(1).max(1))
+    (term_size.0.max(1), term_size.1.saturating_sub(1).max(1))
 }
 
 /// Runs the interactive TUI to completion (until the user detaches or the daemon
@@ -252,7 +255,7 @@ fn apply_response(resp: Response, state: &mut State, req_tx: &mpsc::Sender<Reque
             if Some(id) == state.current_tab {
                 state.current_tab = None;
                 state.parser = None;
-                state.status = Some(format!("tab {id} exited"));
+                state.status = Some(format!("tab {id} closed"));
                 state.awaiting_list = true;
                 let _ = req_tx.send(Request::ListTabs);
             }
