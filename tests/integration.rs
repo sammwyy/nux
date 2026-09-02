@@ -26,10 +26,15 @@ impl Drop for DaemonProcess {
     }
 }
 
-/// Spawns an isolated daemon (unique `USER`/`XDG_RUNTIME_DIR`/`XDG_CONFIG_HOME`
+/// Spawns an isolated daemon (unique `USER`/`XDG_RUNTIME_DIR`/`NUX_CONFIG_PATH`
 /// so it never collides with a real user daemon, config file, or other tests
 /// running in parallel) and points this process's own env at the same
 /// namespace so `nux::client` resolves the same socket.
+///
+/// Uses `NUX_CONFIG_PATH` rather than `XDG_CONFIG_HOME` for the config file:
+/// `dirs::config_dir()` (and thus `Config::config_path()` without the
+/// override) ignores `XDG_CONFIG_HOME` on macOS and Windows, which would
+/// leak into — or clash with — a real config file there.
 fn spawn_isolated_daemon(tag: &str) -> DaemonProcess {
     spawn_isolated_daemon_with_config(tag, None)
 }
@@ -39,25 +44,23 @@ fn spawn_isolated_daemon(tag: &str) -> DaemonProcess {
 fn spawn_isolated_daemon_with_config(tag: &str, config_toml: Option<&str>) -> DaemonProcess {
     let dir = tempfile::tempdir().unwrap();
     let user = format!("nuxtest-{tag}-{}", std::process::id());
-    let config_home = dir.path().join("config");
     let runtime_dir = dir.path().join("runtime");
+    let config_path = dir.path().join("config.toml");
     std::fs::create_dir_all(&runtime_dir).unwrap();
     if let Some(toml) = config_toml {
-        let nux_dir = config_home.join("nux");
-        std::fs::create_dir_all(&nux_dir).unwrap();
-        std::fs::write(nux_dir.join("config.toml"), toml).unwrap();
+        std::fs::write(&config_path, toml).unwrap();
     }
 
     std::env::set_var("USER", &user);
     std::env::set_var("XDG_RUNTIME_DIR", &runtime_dir);
-    std::env::set_var("XDG_CONFIG_HOME", &config_home);
+    std::env::set_var("NUX_CONFIG_PATH", &config_path);
 
     let bin = env!("CARGO_BIN_EXE_nux");
     let mut child = Command::new(bin)
         .arg("__daemon")
         .env("USER", &user)
         .env("XDG_RUNTIME_DIR", &runtime_dir)
-        .env("XDG_CONFIG_HOME", &config_home)
+        .env("NUX_CONFIG_PATH", &config_path)
         .spawn()
         .expect("failed to spawn daemon");
 

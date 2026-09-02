@@ -244,6 +244,10 @@ cargo clippy --all-targets
 verbose daemon logging; daemon stdout/stderr always go to
 `nux daemon`'s reported log path regardless of `RUST_LOG`.
 
+`NUX_CONFIG_PATH` overrides the config file location (used by the test suite
+for isolation, since `dirs::config_dir()` doesn't honor `XDG_CONFIG_HOME` on
+macOS/Windows) — also handy for running more than one isolated setup by hand.
+
 ## Platform support
 
 Linux and Windows are both first-class targets (PTYs via `portable-pty`,

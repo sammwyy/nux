@@ -166,7 +166,13 @@ impl Config {
             .join("nux")
     }
 
+    /// The config file's location. Honors `NUX_CONFIG_PATH` if set (used by
+    /// the test suite for isolation, since `dirs::config_dir()` ignores
+    /// `XDG_CONFIG_HOME` on macOS/Windows); otherwise the platform default.
     pub fn config_path() -> PathBuf {
+        if let Some(path) = std::env::var_os("NUX_CONFIG_PATH") {
+            return PathBuf::from(path);
+        }
         Self::config_dir().join("config.toml")
     }
 
@@ -448,5 +454,12 @@ mod tests {
         assert_eq!(get_config_key(&cfg, "scrollback_lines").as_deref(), Some("5000"));
         assert_eq!(get_config_key(&cfg, "keybindings.new_tab").as_deref(), Some("\"Alt+n\""));
         assert_eq!(get_config_key(&cfg, "nonexistent"), None);
+    }
+
+    #[test]
+    fn config_path_honors_env_override() {
+        std::env::set_var("NUX_CONFIG_PATH", "/tmp/nux-test-config-override.toml");
+        assert_eq!(Config::config_path(), PathBuf::from("/tmp/nux-test-config-override.toml"));
+        std::env::remove_var("NUX_CONFIG_PATH");
     }
 }
