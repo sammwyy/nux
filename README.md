@@ -61,9 +61,9 @@ nux attach <SELECTOR>        Same as -t
 nux kill <SELECTOR>          Same as -k
 nux rename <SELECTOR> <TITLE> Rename a tab
 nux ls | list                 List open tabs (plain text, non-interactive)
-nux status                   Show whether the daemon is running
-nux kill-server              Kill every tab and stop the daemon
-nux restart-server           Restart the daemon (open tabs are lost)
+nux daemon                   Show whether the daemon is running
+nux daemon kill               Kill every tab and stop the daemon
+nux daemon restart            Restart the daemon (open tabs are lost)
 nux config                   Print the config file path
 nux -h | --help              Show help
 nux -V | --version           Show the version
@@ -88,9 +88,8 @@ picker keybind (see below).
 `nux <program> [args...]` is the fast path: it creates a new tab running
 that exact command line and attaches to it immediately. Since a handful of
 words are reserved as subcommands (`ls`, `kill`, `attach`, `rename`,
-`kill-server`, `restart-server`, `status`, `config`, `new`, `run`), use
-`nux new ls` (or `nux run ls`) if you actually want to open a program
-named e.g. `ls` in a tab.
+`daemon`, `config`, `new`, `run`), use `nux new ls` (or `nux run ls`) if you
+actually want to open a program named e.g. `ls` in a tab.
 
 ### Tab lifecycle
 
@@ -109,7 +108,7 @@ therefore a two-step action on the same key/command:
 
 Once the last tab is dismissed this way, the daemon shuts itself down
 automatically (see [Architecture](#architecture)) — there's no need to run
-`kill-server` by hand after closing everything from inside the TUI.
+`nux daemon kill` by hand after closing everything from inside the TUI.
 
 ## Keybindings
 
@@ -200,7 +199,7 @@ cargo clippy --all-targets
 
 `RUST_LOG=debug nux` (or set it before the daemon auto-starts) turns on
 verbose daemon logging; daemon stdout/stderr always go to
-`nux status`'s reported log path regardless of `RUST_LOG`.
+`nux daemon`'s reported log path regardless of `RUST_LOG`.
 
 ## Platform support
 

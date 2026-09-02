@@ -17,9 +17,9 @@ USAGE:
     nux rename <SELECTOR> <TITLE>
                                   Rename a tab
     nux ls | list               List open tabs
-    nux status                 Show whether the daemon is running
-    nux kill-server            Kill every tab and stop the daemon
-    nux restart-server         Restart the daemon (tabs are lost)
+    nux daemon                 Show whether the daemon is running
+    nux daemon kill            Kill every tab and stop the daemon
+    nux daemon restart         Restart the daemon (tabs are lost)
     nux config                 Print the config file path
     nux -h | --help            Show this help
     nux -V | --version         Show the version
@@ -81,9 +81,12 @@ fn dispatch(mut args: Vec<String>) -> anyhow::Result<()> {
             rename_by_selector(&args[1], args[2..].join(" "))
         }
         "ls" | "list" => list_tabs(),
-        "status" => status(),
-        "kill-server" => kill_server(),
-        "restart-server" | "restart" => restart_server(),
+        "daemon" => match args.get(1).map(String::as_str) {
+            None => daemon_status(),
+            Some("kill") => daemon_kill(),
+            Some("restart") => daemon_restart(),
+            Some(other) => anyhow::bail!("unknown `nux daemon` subcommand {other:?} (expected kill|restart)"),
+        },
         "config" => {
             println!("{}", Config::config_path().display());
             Ok(())
@@ -200,7 +203,7 @@ fn list_tabs() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn status() -> anyhow::Result<()> {
+fn daemon_status() -> anyhow::Result<()> {
     if !client::is_running() {
         println!("nux daemon: not running");
         return Ok(());
@@ -212,7 +215,7 @@ fn status() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn kill_server() -> anyhow::Result<()> {
+fn daemon_kill() -> anyhow::Result<()> {
     if client::kill_server()? {
         println!("nux daemon stopped");
     } else {
@@ -221,7 +224,7 @@ fn kill_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn restart_server() -> anyhow::Result<()> {
+fn daemon_restart() -> anyhow::Result<()> {
     client::kill_server()?;
     // Give the old process a moment to release the socket before spawning a new one.
     std::thread::sleep(std::time::Duration::from_millis(300));
