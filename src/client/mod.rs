@@ -47,14 +47,15 @@ fn wait_for_daemon() -> anyhow::Result<Stream> {
     }
 }
 
+fn open_log_for_append() -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new().create(true).append(true).open(crate::ipc::log_file())
+}
+
 #[cfg(unix)]
 fn spawn_daemon_process() -> anyhow::Result<()> {
     crate::ipc::ensure_runtime_dir()?;
     let exe = std::env::current_exe()?;
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(crate::ipc::log_file())?;
+    let log = open_log_for_append()?;
     Command::new(exe)
         .arg("__daemon")
         .stdin(Stdio::null())
@@ -74,12 +75,13 @@ fn spawn_daemon_process() -> anyhow::Result<()> {
 
     crate::ipc::ensure_runtime_dir()?;
     let exe = std::env::current_exe()?;
+    let log = open_log_for_append()?;
     Command::new(exe)
         .arg("__daemon")
         .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(log.try_clone()?))
+        .stderr(Stdio::from(log))
         .spawn()?;
     Ok(())
 }
