@@ -1,7 +1,13 @@
-//! Translates crossterm key events back into the byte sequences a terminal
-//! application expects to read from its PTY.
+//! Translates crossterm key/mouse events back into the byte sequences a
+//! terminal application expects to read from its PTY.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use vt100::{MouseProtocolEncoding, MouseProtocolMode};
+
+/// Arrow-key presses sent per wheel notch when the app hasn't opted into
+/// xterm mouse reporting, matching the default "lines per scroll" most
+/// terminal emulators use to translate wheel input for pagers like `less`.
+const SCROLL_LINES: usize = 3;
 
 /// Encodes `key` as raw terminal input bytes. Returns an empty vector for events
 /// that don't correspond to any byte sequence (e.g. a bare modifier key).
@@ -42,6 +48,48 @@ pub fn key_to_bytes(key: KeyEvent) -> Vec<u8> {
         out
     } else {
         base
+    }
+}
+
+/// Encodes a mouse wheel event as the bytes the attached PTY app expects.
+///
+/// If the app has enabled xterm mouse reporting (e.g. `less -R`, `vim`, `htop`),
+/// the scroll is sent as a proper mouse report in whatever encoding it asked
+/// for. Otherwise it falls back to arrow-key presses, the same trick real
+/// terminal emulators use so wheel scrolling still moves pagers and full-screen
+/// apps that only understand keyboard input.
+pub fn mouse_scroll_to_bytes(
+    event: MouseEvent,
+    mode: MouseProtocolMode,
+    encoding: MouseProtocolEncoding,
+) -> Vec<u8> {
+    let button = match event.kind {
+        MouseEventKind::ScrollUp => 64,
+        MouseEventKind::ScrollDown => 65,
+        _ => return Vec::new(),
+    };
+
+    if mode == MouseProtocolMode::None {
+        let key = if event.kind == MouseEventKind::ScrollUp { b"\x1b[A".as_slice() } else { b"\x1b[B".as_slice() };
+        return key.repeat(SCROLL_LINES);
+    }
+
+    let modbits = (event.modifiers.contains(KeyModifiers::SHIFT) as u8 * 4)
+        | (event.modifiers.contains(KeyModifiers::ALT) as u8 * 8)
+        | (event.modifiers.contains(KeyModifiers::CONTROL) as u8 * 16);
+    let cb = button + modbits;
+
+    match encoding {
+        MouseProtocolEncoding::Sgr => {
+            format!("\x1b[<{};{};{}M", cb, event.column + 1, event.row + 1).into_bytes()
+        }
+        _ => {
+            // X10/UTF8 encoding: coordinates are single bytes offset by 32, so
+            // anything past column/row 223 can't be represented and is clamped.
+            let col = (event.column + 1).min(223) as u8 + 32;
+            let row = (event.row + 1).min(223) as u8 + 32;
+            vec![0x1b, b'[', b'M', cb + 32, col, row]
+        }
     }
 }
 
@@ -131,5 +179,63 @@ mod tests {
     fn function_keys_encode() {
         assert_eq!(key_to_bytes(key(KeyCode::F(1), KeyModifiers::NONE)), b"\x1bOP");
         assert_eq!(key_to_bytes(key(KeyCode::F(5), KeyModifiers::NONE)), b"\x1b[15~");
+    }
+
+    fn scroll(kind: MouseEventKind) -> MouseEvent {
+        MouseEvent { kind, column: 4, row: 9, modifiers: KeyModifiers::NONE }
+    }
+
+    #[test]
+    fn scroll_without_mouse_mode_sends_arrow_keys() {
+        let bytes = mouse_scroll_to_bytes(
+            scroll(MouseEventKind::ScrollUp),
+            MouseProtocolMode::None,
+            MouseProtocolEncoding::Default,
+        );
+        assert_eq!(bytes, b"\x1b[A".repeat(SCROLL_LINES));
+
+        let bytes = mouse_scroll_to_bytes(
+            scroll(MouseEventKind::ScrollDown),
+            MouseProtocolMode::None,
+            MouseProtocolEncoding::Default,
+        );
+        assert_eq!(bytes, b"\x1b[B".repeat(SCROLL_LINES));
+    }
+
+    #[test]
+    fn scroll_with_sgr_mouse_mode_sends_wheel_report() {
+        let bytes = mouse_scroll_to_bytes(
+            scroll(MouseEventKind::ScrollUp),
+            MouseProtocolMode::ButtonMotion,
+            MouseProtocolEncoding::Sgr,
+        );
+        assert_eq!(bytes, b"\x1b[<64;5;10M");
+
+        let bytes = mouse_scroll_to_bytes(
+            scroll(MouseEventKind::ScrollDown),
+            MouseProtocolMode::ButtonMotion,
+            MouseProtocolEncoding::Sgr,
+        );
+        assert_eq!(bytes, b"\x1b[<65;5;10M");
+    }
+
+    #[test]
+    fn scroll_with_default_encoding_sends_x10_report() {
+        let bytes = mouse_scroll_to_bytes(
+            scroll(MouseEventKind::ScrollUp),
+            MouseProtocolMode::ButtonMotion,
+            MouseProtocolEncoding::Default,
+        );
+        assert_eq!(bytes, vec![0x1b, b'[', b'M', 64 + 32, 5 + 32, 10 + 32]);
+    }
+
+    #[test]
+    fn scroll_report_includes_modifiers() {
+        let bytes = mouse_scroll_to_bytes(
+            MouseEvent { kind: MouseEventKind::ScrollUp, column: 0, row: 0, modifiers: KeyModifiers::SHIFT },
+            MouseProtocolMode::ButtonMotion,
+            MouseProtocolEncoding::Sgr,
+        );
+        assert_eq!(bytes, b"\x1b[<68;1;1M");
     }
 }

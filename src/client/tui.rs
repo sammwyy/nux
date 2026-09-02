@@ -1,11 +1,11 @@
 //! The interactive multiplexer view: renders the attached tab's screen plus a
 //! bottom tab bar, and turns keystrokes into requests against the daemon.
 
-use super::input::key_to_bytes;
+use super::input::{key_to_bytes, mouse_scroll_to_bytes};
 use super::ui;
 use crate::config::{parse_keybind, Config, Keybind, LayoutConfig};
 use crate::protocol::{read_message, write_message, Request, Response, TabInfo};
-use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyEventKind, MouseEvent};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use interprocess::local_socket::traits::Stream as _;
 use ratatui::backend::CrosstermBackend;
@@ -161,7 +161,7 @@ struct TerminalGuard;
 impl TerminalGuard {
     fn enter() -> anyhow::Result<Self> {
         enable_raw_mode()?;
-        crossterm::execute!(std::io::stdout(), EnterAlternateScreen)?;
+        crossterm::execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         Ok(Self)
     }
 }
@@ -169,7 +169,7 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = crossterm::execute!(std::io::stdout(), LeaveAlternateScreen);
+        let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
     }
 }
 
@@ -193,6 +193,9 @@ fn event_loop(
                 Event::Resize(cols, rows) => {
                     handle_resize(cols, rows, state, req_tx);
                     dirty = true;
+                }
+                Event::Mouse(mouse) => {
+                    handle_mouse(mouse, state, req_tx);
                 }
                 _ => {}
             }
@@ -286,6 +289,19 @@ fn upsert_tab(state: &mut State, info: TabInfo) {
 /// eagerly here would leave a window where diffs still in flight from the
 /// old size get applied against the new dimensions, scrambling cursor
 /// position and cell contents until the next full/diff update caught up.
+/// Forwards mouse wheel scrolling to the attached tab's PTY, so it reaches the
+/// running app the same way a real terminal's scroll would.
+fn handle_mouse(mouse: MouseEvent, state: &mut State, req_tx: &mpsc::Sender<Request>) {
+    if state.current_tab.is_none() {
+        return;
+    }
+    let Some(screen) = state.screen() else { return };
+    let bytes = mouse_scroll_to_bytes(mouse, screen.mouse_protocol_mode(), screen.mouse_protocol_encoding());
+    if !bytes.is_empty() {
+        let _ = req_tx.send(Request::Input(bytes));
+    }
+}
+
 fn handle_resize(cols: u16, rows: u16, state: &mut State, req_tx: &mpsc::Sender<Request>) {
     let (cols, rows) = viewport((cols, rows), &state.layout);
     state.cols = cols;
