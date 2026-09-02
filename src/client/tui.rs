@@ -279,15 +279,19 @@ fn upsert_tab(state: &mut State, info: TabInfo) {
     }
 }
 
+/// Reattaches (rather than sending an incremental `Resize`) so the daemon
+/// resizes its PTY/parser first and replies with a full dump already sized
+/// to match — the client's local parser is only replaced once that dump
+/// actually arrives (see `Response::Attached`). Resizing the local parser
+/// eagerly here would leave a window where diffs still in flight from the
+/// old size get applied against the new dimensions, scrambling cursor
+/// position and cell contents until the next full/diff update caught up.
 fn handle_resize(cols: u16, rows: u16, state: &mut State, req_tx: &mpsc::Sender<Request>) {
     let (cols, rows) = viewport((cols, rows), &state.layout);
     state.cols = cols;
     state.rows = rows;
-    if let Some(parser) = state.parser.as_mut() {
-        parser.set_size(rows, cols);
-    }
-    if state.current_tab.is_some() {
-        let _ = req_tx.send(Request::Resize { cols, rows });
+    if let Some(tab_id) = state.current_tab {
+        let _ = req_tx.send(Request::Attach { tab_id, cols, rows });
     }
 }
 
