@@ -74,11 +74,15 @@ case ":${PATH}:" in
             *) RC_FILE="$HOME/.profile" ;;
         esac
         LINE="export PATH=\"${INSTALL_DIR}:\$PATH\""
-        if ! grep -qF "$LINE" "$RC_FILE" 2>/dev/null; then
-            printf '\n# added by nux install.sh\n%s\n' "$LINE" >> "$RC_FILE"
+        if grep -qF "$LINE" "$RC_FILE" 2>/dev/null; then
+            :
+        elif printf '\n# added by nux install.sh\n%s\n' "$LINE" >> "$RC_FILE" 2>/dev/null; then
+            echo "Added ${INSTALL_DIR} to PATH in ${RC_FILE} — restart your shell, or run:"
+            echo "  ${LINE}"
+        else
+            echo "note: add ${INSTALL_DIR} to your PATH, e.g. by adding this to your shell profile:"
+            echo "  ${LINE}"
         fi
-        echo "Added ${INSTALL_DIR} to PATH in ${RC_FILE} — restart your shell, or run:"
-        echo "  ${LINE}"
         ;;
 esac
 
