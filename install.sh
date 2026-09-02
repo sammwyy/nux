@@ -10,8 +10,7 @@ detect_os() {
     case "$(uname -s)" in
         Linux) echo linux ;;
         *)
-            echo "error: no prebuilt binary for $(uname -s) — only Linux is published." >&2
-            echo "       try 'cargo install nux-term' instead." >&2
+            echo "✗ no prebuilt binary for $(uname -s) — try: cargo install nux-term" >&2
             exit 1
             ;;
     esac
@@ -23,48 +22,49 @@ detect_arch() {
         aarch64 | arm64) echo arm64 ;;
         armv7l | armv6l) echo armv7 ;;
         *)
-            echo "error: no prebuilt binary for architecture $(uname -m)." >&2
+            echo "✗ no prebuilt binary for architecture $(uname -m)" >&2
             exit 1
             ;;
     esac
 }
 
+echo "detecting system..."
 OS=$(detect_os)
 ARCH=$(detect_arch)
 ASSET="nux-${OS}-${ARCH}.tar.gz"
+echo "  → ${OS}/${ARCH}"
 
-echo "Detected ${OS}/${ARCH}; looking up the latest release..."
-
+echo "fetching latest release..."
 RELEASE_JSON=$(curl -fsSL "$API_URL")
 DOWNLOAD_URL=$(printf '%s' "$RELEASE_JSON" \
     | grep -o "\"browser_download_url\": *\"[^\"]*${ASSET}\"" \
     | sed -E 's/.*"(https:[^"]+)"/\1/' \
     | head -n1)
-
 if [ -z "$DOWNLOAD_URL" ]; then
-    echo "error: no release asset named ${ASSET} was found in the latest release of ${REPO}." >&2
+    echo "✗ no release asset named ${ASSET} was found for ${REPO}" >&2
     exit 1
 fi
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "Downloading ${DOWNLOAD_URL}"
+echo "downloading ${ASSET}..."
 curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ASSET"
 tar xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR"
 
 BIN_SRC=$(find "$TMP_DIR" -type f -name nux | head -n1)
 if [ -z "$BIN_SRC" ]; then
-    echo "error: couldn't find the nux binary inside ${ASSET}." >&2
+    echo "✗ couldn't find the nux binary inside ${ASSET}" >&2
     exit 1
 fi
 
 INSTALL_DIR="${NUX_INSTALL_DIR:-$HOME/.local/bin}"
+echo "installing to ${INSTALL_DIR}..."
 mkdir -p "$INSTALL_DIR"
 chmod +x "$BIN_SRC"
 cp "$BIN_SRC" "$INSTALL_DIR/nux"
-echo "Installed nux to ${INSTALL_DIR}/nux"
 
+PATH_NOTE=""
 case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
     *)
@@ -77,13 +77,16 @@ case ":${PATH}:" in
         if grep -qF "$LINE" "$RC_FILE" 2>/dev/null; then
             :
         elif printf '\n# added by nux install.sh\n%s\n' "$LINE" >> "$RC_FILE" 2>/dev/null; then
-            echo "Added ${INSTALL_DIR} to PATH in ${RC_FILE} — restart your shell, or run:"
-            echo "  ${LINE}"
+            PATH_NOTE="added to PATH in ${RC_FILE} — run this now to use it in this shell too:
+  ${LINE}"
         else
-            echo "note: add ${INSTALL_DIR} to your PATH, e.g. by adding this to your shell profile:"
-            echo "  ${LINE}"
+            PATH_NOTE="add this to your shell profile to put it on PATH:
+  ${LINE}"
         fi
+        export PATH="${INSTALL_DIR}:${PATH}"
         ;;
 esac
 
-"$INSTALL_DIR/nux" --version
+echo
+echo "✓ $("$INSTALL_DIR/nux" --version) → ${INSTALL_DIR}"
+[ -n "$PATH_NOTE" ] && printf '%s\n' "$PATH_NOTE"
