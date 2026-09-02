@@ -2,7 +2,7 @@
 name = "nux-term"
 version = "0.1.0"
 edition = "2021"
-description = "A modern, daemon-backed terminal multiplexer. Installs a `nux` binary."
+description = "A modern, daemon-backed terminal multiplexer"
 license = "MIT"
 authors = ["nux contributors"]
 repository = "https://github.com/sammwy/nux"
