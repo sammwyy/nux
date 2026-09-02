@@ -41,6 +41,36 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
+/// Builds the command to spawn. On Windows, `CreateProcessW` (which
+/// `portable_pty` calls fairly directly) doesn't do the `PATHEXT` search a
+/// real shell does, so a bare name that only resolves to a `.cmd`/`.bat`/
+/// `.ps1` shim (as npm-installed CLIs on Windows commonly are) fails with
+/// "not a valid Win32 application" instead of running the shim. Routing
+/// through `cmd.exe /c` for anything that isn't already a direct `.exe`/
+/// `.com` gets that resolution back.
+#[cfg(windows)]
+fn build_command<'a>(program: &str, args: impl Iterator<Item = &'a String>) -> CommandBuilder {
+    let lower = program.to_ascii_lowercase();
+    if lower.ends_with(".exe") || lower.ends_with(".com") {
+        let mut cmd = CommandBuilder::new(program);
+        cmd.args(args);
+        cmd
+    } else {
+        let mut cmd = CommandBuilder::new("cmd.exe");
+        cmd.arg("/c");
+        cmd.arg(program);
+        cmd.args(args);
+        cmd
+    }
+}
+
+#[cfg(unix)]
+fn build_command<'a>(program: &str, args: impl Iterator<Item = &'a String>) -> CommandBuilder {
+    let mut cmd = CommandBuilder::new(program);
+    cmd.args(args);
+    cmd
+}
+
 impl Tab {
     /// Spawns `command` in a new PTY of size `cols x rows`.
     ///
@@ -71,8 +101,7 @@ impl Tab {
         })?;
 
         let program = command.first().cloned().unwrap_or_else(|| "sh".to_string());
-        let mut cmd = CommandBuilder::new(&program);
-        cmd.args(command.iter().skip(1));
+        let mut cmd = build_command(&program, command.iter().skip(1));
         if let Some(dir) = &cwd {
             cmd.cwd(dir);
         }
