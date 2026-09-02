@@ -123,7 +123,7 @@ defaults on first run):
 
 | Action           | Default       |
 |------------------|---------------|
-| New tab (shell)  | `Alt+C`       |
+| New tab (shell)  | `Alt+N`       |
 | Next tab         | `Alt+Right`   |
 | Previous tab     | `Alt+Left`    |
 | Close current tab| `Alt+X`       |
@@ -142,19 +142,43 @@ Keys are written as `Modifier+Modifier+Key`, e.g. `"Ctrl+Shift+n"`,
 scrollback_lines = 5000
 
 [keybindings]
-new_tab = "Alt+c"
+new_tab = "Alt+n"
 next_tab = "Alt+Right"
 prev_tab = "Alt+Left"
 close_tab = "Alt+x"
 rename_tab = "Alt+r"
 detach = "Alt+d"
 picker = "Alt+/"
+
+[layout]
+tab_bar_row = "bottom"
+tab_bar_side = "left"
+workspace_bar_row = "bottom"
+workspace_bar_side = "right"
+workspace_bar_width = 32
 ```
 
 A top-level `shell = "..."` key (absent by default, so not shown in the
 generated file above) overrides the program used for new tabs opened without
 an explicit command; without it, nux uses `$SHELL` on Unix and `%COMSPEC%`
 on Windows.
+
+## Status bars
+
+Two independent bars: the tab bar (`Nux ›` plus the scrollable tab strip)
+and the workspace bar (the attached tab's directory, right-trimmed with `…`
+when it doesn't fit).
+
+Each one is placed with `<bar>_row` (`top`/`bottom`) and `<bar>_side`
+(`left`/`right`). Sharing a row splits it between both sides; alone on a row,
+a bar gets the full width. A row neither bar uses isn't reserved — set both
+to `bottom` (the default) and the top row disappears entirely, or split them
+across `top`/`bottom` for two separate lines. `workspace_bar_width` caps how
+many columns the workspace bar takes when it shares a row with the tab bar.
+
+The tab strip shows as many tabs as fit, keeping the selected one centered
+until it nears either end of the list, with `‹`/`›` when tabs are hidden off
+that side.
 
 ## Architecture
 

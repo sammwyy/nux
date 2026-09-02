@@ -32,7 +32,7 @@ SELECTORS
 CONFIG
     Keybindings and defaults live in nux/config.toml under your platform's
     config directory (see `nux config`). Defaults:
-      Alt+C          new tab (default shell)
+      Alt+N          new tab (default shell)
       Alt+Left/Right previous / next tab
       Alt+X          close current tab
       Alt+R          rename current tab
